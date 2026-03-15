@@ -1,8 +1,9 @@
--- LTE Signal info (display only, no action)
+-- LTE Signal + Traffic graph
 return {
     name = "LTE",
     order = 3,
     color = "cyan",
+    graph = true,  -- pressing this opens graph page
 
     status = function()
         local raw = io.popen("uqmi -d /dev/cdc-wdm0 --get-signal-info 2>/dev/null"):read("*a") or ""
@@ -19,8 +20,6 @@ return {
     end,
 
     action = function()
-        -- Show detailed signal on full screen for 5 sec
-        local raw = io.popen("uqmi -d /dev/cdc-wdm0 --get-signal-info 2>/dev/null"):read("*a") or ""
-        -- Will be handled by lcd_ui refresh
+        -- graph mode is activated by lcd_ui via graph=true flag
     end,
 }
