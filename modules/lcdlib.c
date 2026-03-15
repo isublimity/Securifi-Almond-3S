@@ -52,11 +52,30 @@ static int l_usleep(lua_State *L)
     return 0;
 }
 
+/* backlight(0) = off, backlight(1) = on */
+static int l_backlight(lua_State *L)
+{
+    int on = lua_toboolean(L, 1);
+    if (lcd_fd >= 0)
+        ioctl(lcd_fd, 4, on ? 1 : 0);
+    return 0;
+}
+
+/* splash() — show 4PDA logo from kernel (bitmap, instant) */
+static int l_splash(lua_State *L)
+{
+    if (lcd_fd >= 0)
+        ioctl(lcd_fd, 4, 2);
+    return 0;
+}
+
 static const struct luaL_Reg lcdlib[] = {
-    {"open",   l_open},
-    {"close",  l_close},
-    {"touch",  l_touch},
-    {"usleep", l_usleep},
+    {"open",      l_open},
+    {"close",     l_close},
+    {"touch",     l_touch},
+    {"usleep",    l_usleep},
+    {"backlight", l_backlight},
+    {"splash",    l_splash},
     {NULL, NULL}
 };
 

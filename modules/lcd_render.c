@@ -275,12 +275,7 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    /* Draw initial splash (server mode only) */
-    fb_fill(0x0000);
-    fb_text(52, 80, "by sublimity", 0xFFFF, 0x0000, 3);
-    fb_text(40, 130, "For OpenWRT", 0xFFE0, 0x0000, 3);
-    fb_text(60, 200, "lcd_render ready", 0x07E0, 0x0000, 1);
-    flush_cmd();
+    /* No splash — kernel module shows 4PDA logo at boot */
 
     /* Unix socket server */
     unlink(SOCK_PATH);

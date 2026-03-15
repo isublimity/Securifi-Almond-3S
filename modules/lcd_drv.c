@@ -541,7 +541,7 @@ static int touch_fn(void *data)
     return 0;
 }
 
-/* ioctl: 0=flush, 1=read touch, 2=read battery, 3=raw PIC read */
+/* ioctl: 0=flush, 1=read touch, 2=read battery, 3=raw PIC read, 4=backlight */
 static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 {
     if (cmd == 0) {
@@ -576,6 +576,28 @@ static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
                 buf[12], buf[13], buf[14], buf[15], buf[16]);
         if (copy_to_user((void __user *)arg, buf, PIC_BATTERY_LEN))
             return -EFAULT;
+        return 0;
+    }
+    if (cmd == 4) {
+        /* Backlight control: arg=0 off, arg=1 on, arg=2 show splash */
+        if (arg == 2) {
+            /* Redraw splash screen (4PDA logo) */
+            u16 *fb16 = (u16 *)framebuffer;
+            int i, j = 0;
+            for (i = 0; i < SPLASH_RLE_LEN && j < LCD_W * LCD_H; i++) {
+                int k;
+                for (k = 0; k < splash_cnt[i] && j < LCD_W * LCD_H; k++)
+                    fb16[j++] = splash_clr[i];
+            }
+            fb_dirty = 1;
+            return 0;
+        }
+        /* Backlight control: arg=0 off, arg=1 on */
+        if (arg)
+            shadow_dir |= BIT_BL;
+        else
+            shadow_dir &= ~BIT_BL;
+        gw(GPIO_DIR_OFF, shadow_dir);
         return 0;
     }
     return -ENOTTY;

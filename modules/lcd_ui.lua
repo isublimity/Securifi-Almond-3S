@@ -328,63 +328,138 @@ local function handle_main_touch(tx, ty)
     return false
 end
 
+-- === Screen state machine (burn-in protection) ===
+--
+-- States:
+--   "active"      — UI visible, backlight ON, normal touch handling
+--   "screensaver" — 4PDA logo, backlight ON, touch → active
+--   "off"         — backlight OFF, touch → active
+--
+-- Transitions:
+--   active → screensaver:  IDLE_TO_SAVER seconds without touch
+--   screensaver → off:     IDLE_TO_OFF seconds without touch
+--   screensaver → active:  touch
+--   off → active:          touch
+--
+
+local IDLE_TO_SAVER = 30   -- секунд до скринсейвера
+local IDLE_TO_OFF   = 30   -- секунд от скринсейвера до выключения экрана
+
+local screen_state = "active"
+local last_touch_time = os.time()
+
+-- Показывает 4PDA лого (bitmap из ядра, мгновенно)
+local function call_logo()
+    lcd.splash()
+end
+
+local function set_screen_state(new_state)
+    if new_state == screen_state then return end
+    screen_state = new_state
+
+    if new_state == "active" then
+        lcd.backlight(true)
+        page = "main"
+        draw_main()
+        print("lcd_ui: screen ON")
+    elseif new_state == "screensaver" then
+        lcd.backlight(true)
+        call_logo()
+        print("lcd_ui: screensaver")
+    elseif new_state == "off" then
+        lcd_clear(C_BG)
+        lcd_flush()
+        lcd.backlight(false)
+        print("lcd_ui: screen OFF (burn-in protection)")
+    end
+end
+
+local function on_touch()
+    last_touch_time = os.time()
+    if screen_state ~= "active" then
+        set_screen_state("active")
+        return true  -- consume touch (don't pass to UI)
+    end
+    return false
+end
+
 -- === Main ===
 
 local function main()
     io.stdout:setvbuf("no")
     print("lcd_ui: starting")
-    -- Initial data
+
     kick_bg_collect()
     sleep_ms(2000)
     collect_cached()
     draw_main()
-    print("lcd_ui: ready")
+    print("lcd_ui: ready (idle: " .. IDLE_TO_SAVER .. "s saver, " .. IDLE_TO_OFF .. "s off)")
 
     local last_bg_kick = os.time()
     local last_draw = os.time()
     local touch_cd = 0
+    last_touch_time = os.time()
 
     while true do
-        -- 1. Touch check (fast, ~2ms: fork + ioctl)
+        -- 1. Touch check
         local tx, ty = read_touch()
         if tx and os.time() > touch_cd then
-            if page == "main" then
-                handle_main_touch(tx, ty)
-            else
-                page = "main"
-                draw_main()
+            local consumed = on_touch()  -- wake from screensaver/off
+            if not consumed and screen_state == "active" then
+                if page == "main" then
+                    handle_main_touch(tx, ty)
+                else
+                    page = "main"
+                    draw_main()
+                end
             end
             touch_cd = os.time() + 1
             last_draw = os.time()
         end
 
-        -- 2. Kick background collection every 3 sec (non-blocking)
         local now = os.time()
-        if now - last_bg_kick >= 3 then
-            kick_bg_collect()
-            last_bg_kick = now
+
+        -- 2. Screen state transitions (burn-in protection)
+        if screen_state == "active" then
+            if now - last_touch_time >= IDLE_TO_SAVER then
+                set_screen_state("screensaver")
+            end
+        elseif screen_state == "screensaver" then
+            if now - last_touch_time >= IDLE_TO_SAVER + IDLE_TO_OFF then
+                set_screen_state("off")
+            end
         end
 
-        -- 3. Read cached data + traffic (instant, no fork)
-        collect_cached()
-
-        -- 4. Redraw on timer
-        if page == "main" then
-            if now - last_draw >= 5 then
-                draw_main()
-                last_draw = now
+        -- 3. Background data collection (only when active)
+        if screen_state == "active" then
+            if now - last_bg_kick >= 3 then
+                kick_bg_collect()
+                last_bg_kick = now
             end
-        else
-            if now - last_draw >= 1 then
-                if page == "signal" then draw_signal_page()
-                elseif page == "traffic" then draw_traffic_page()
+            collect_cached()
+
+            -- 4. Redraw
+            if page == "main" then
+                if now - last_draw >= 5 then
+                    draw_main()
+                    last_draw = now
                 end
-                last_draw = now
+            else
+                if now - last_draw >= 1 then
+                    if page == "signal" then draw_signal_page()
+                    elseif page == "traffic" then draw_traffic_page()
+                    end
+                    last_draw = now
+                end
             end
         end
 
-        -- 5. Short sleep (no fork, busy-wait)
-        sleep_ms(50)
+        -- 5. Sleep (longer when screen off to save CPU)
+        if screen_state == "off" then
+            sleep_ms(200)
+        else
+            sleep_ms(50)
+        end
     end
 end
 
