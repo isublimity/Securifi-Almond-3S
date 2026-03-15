@@ -1,8 +1,13 @@
 # Сборка OpenWrt для Securifi Almond 3S
 
+## Репозитории
+
+- **OpenWrt форк**: https://github.com/isublimity/openwrt_almond/commits/almond-3s/
+- **Документация и модули**: https://github.com/isublimity/Securifi-Almond-3S
+
 ## Требования
 
-- **Ветка**: `almond-3s` (базируется на `openwrt-24.10`)
+- **Ветка**: [`almond-3s`](https://github.com/isublimity/openwrt_almond/tree/almond-3s) (базируется на `openwrt-24.10`)
 - **Ядро**: 6.6.x (**ТОЛЬКО!** Ядро 6.12.x несовместимо с U-Boot — кирпич)
 - **Сервер сборки**: ~10 ГБ RAM, ~30 ГБ диска, Linux x86_64
 - **Тулчейн**: собирается автоматически (GCC 13.3, musl, mipsel_24kc)
