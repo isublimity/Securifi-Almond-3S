@@ -457,7 +457,7 @@ static int pic_i2c_read(u8 *buf, int len)
     return (ret == 1) ? 0 : -EIO;
 }
 
-static int pic_i2c_write(u8 *data, int len)
+static int __maybe_unused pic_i2c_write(u8 *data, int len)
 {
     struct i2c_msg msg = {
         .addr = PIC_ADDR,
@@ -484,114 +484,26 @@ static int pic_i2c_write(u8 *data, int len)
  */
 static int pic_read_battery(void)
 {
-    u8 cmd[3] = { 0x2F, 0x00, 0x02 };
     int ret;
 
-    /* Test various PIC commands */
+    /* PIC returns test pattern (AA 54 A8...) without calibration.
+     * Battery monitoring blocked until PICkit programmer or
+     * stock firmware calibration data is available.
+     * Send wake-up command 0x33 first, then read. */
     {
-        u8 buf[PIC_BATTERY_LEN];
-        int i;
-
-        /* Test 1: cmd 0x2F 0x00 0x02 (battery request from IDA) */
-        ret = pic_i2c_write(cmd, 3);
-        pr_info("lcd_drv: PIC write {2F,00,02}: %s\n", ret ? "FAIL" : "OK");
-        if (!ret) {
-            mdelay(50);
-            memset(buf, 0, sizeof(buf));
-            ret = pic_i2c_read(buf, PIC_BATTERY_LEN);
-            if (!ret) {
-                pr_info("lcd_drv: PIC after 2F:");
-                for (i = 0; i < PIC_BATTERY_LEN; i++)
-                    pr_cont(" %02x", buf[i]);
-                pr_cont("\n");
-            }
-        }
-
-        /* Test 2: cmd 0x0F (read battery from original code) */
-        {
-            u8 c1[1] = { 0x0F };
-            ret = pic_i2c_write(c1, 1);
-            pr_info("lcd_drv: PIC write {0F}: %s\n", ret ? "FAIL" : "OK");
-            if (!ret) {
-                mdelay(50);
-                memset(buf, 0, sizeof(buf));
-                ret = pic_i2c_read(buf, PIC_BATTERY_LEN);
-                if (!ret) {
-                    pr_info("lcd_drv: PIC after 0F:");
-                    for (i = 0; i < PIC_BATTERY_LEN; i++)
-                        pr_cont(" %02x", buf[i]);
-                    pr_cont("\n");
-                }
-            }
-        }
-
-        /* Test 3: cmd 0x33 0x00 0x01 */
-        {
-            u8 c3[3] = { 0x33, 0x00, 0x01 };
-            ret = pic_i2c_write(c3, 3);
-            pr_info("lcd_drv: PIC write {33,00,01}: %s\n", ret ? "FAIL" : "OK");
-            if (!ret) {
-                mdelay(50);
-                memset(buf, 0, sizeof(buf));
-                ret = pic_i2c_read(buf, PIC_BATTERY_LEN);
-                if (!ret) {
-                    pr_info("lcd_drv: PIC after 33:");
-                    for (i = 0; i < PIC_BATTERY_LEN; i++)
-                        pr_cont(" %02x", buf[i]);
-                    pr_cont("\n");
-                }
-            }
-        }
-
-        /* Test 4: cmd 0x34 0x00 0x01 */
-        {
-            u8 c4[3] = { 0x34, 0x00, 0x01 };
-            ret = pic_i2c_write(c4, 3);
-            pr_info("lcd_drv: PIC write {34,00,01}: %s\n", ret ? "FAIL" : "OK");
-            if (!ret) {
-                mdelay(50);
-                memset(buf, 0, sizeof(buf));
-                ret = pic_i2c_read(buf, PIC_BATTERY_LEN);
-                if (!ret) {
-                    pr_info("lcd_drv: PIC after 34:");
-                    for (i = 0; i < PIC_BATTERY_LEN; i++)
-                        pr_cont(" %02x", buf[i]);
-                    pr_cont("\n");
-                }
-            }
-        }
-
-        /* Test 5: cmd 0x41 (state change) */
-        {
-            u8 c5[1] = { 0x41 };
-            ret = pic_i2c_write(c5, 1);
-            pr_info("lcd_drv: PIC write {41}: %s\n", ret ? "FAIL" : "OK");
-            if (!ret) {
-                mdelay(50);
-                memset(buf, 0, sizeof(buf));
-                ret = pic_i2c_read(buf, PIC_BATTERY_LEN);
-                if (!ret) {
-                    pr_info("lcd_drv: PIC after 41:");
-                    for (i = 0; i < PIC_BATTERY_LEN; i++)
-                        pr_cont(" %02x", buf[i]);
-                    pr_cont("\n");
-                }
-            }
-        }
-
-        /* Test 6: read after all commands */
-        mdelay(200);
-        memset(pic_battery_raw, 0, PIC_BATTERY_LEN);
-        ret = pic_i2c_read(pic_battery_raw, PIC_BATTERY_LEN);
-        if (!ret) {
-            pr_info("lcd_drv: PIC final:");
-            for (i = 0; i < PIC_BATTERY_LEN; i++)
-                pr_cont(" %02x", pic_battery_raw[i]);
-            pr_cont("\n");
-            pic_battery_valid = 1;
-        } else {
-            pr_info("lcd_drv: PIC final read: %d\n", ret);
-        }
+        u8 wake[3] = { 0x33, 0x00, 0x01 };
+        pic_i2c_write(wake, 3);
+        mdelay(50);
+    }
+    ret = pic_i2c_read(pic_battery_raw, PIC_BATTERY_LEN);
+    if (!ret) {
+        pr_info("lcd_drv: PIC alive, data: %02x %02x %02x %02x %02x %02x %02x\n",
+                pic_battery_raw[0], pic_battery_raw[1], pic_battery_raw[2],
+                pic_battery_raw[3], pic_battery_raw[4], pic_battery_raw[5],
+                pic_battery_raw[6]);
+        pic_battery_valid = 1;
+    } else {
+        pr_info("lcd_drv: PIC not responding (%d)\n", ret);
     }
 
     return 0;
