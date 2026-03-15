@@ -1,0 +1,303 @@
+/*
+ * lcd_render — Userspace LCD рендерер для Almond 3S
+ * mmap /dev/lcd → framebuffer 320x240 RGB565
+ * Принимает JSON команды через unix socket /tmp/lcd.sock
+ *
+ * Компиляция: zig cc -target mipsel-linux-musleabi -O2 -static -o lcd_render lcd_render.c
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <stdint.h>
+#include <sys/stat.h>
+
+#define LCD_W 320
+#define LCD_H 240
+#define FB_SIZE (LCD_W * LCD_H * 2)
+#define SOCK_PATH "/tmp/lcd.sock"
+
+static uint16_t fb[320 * 240]; /* local framebuffer */
+static int lcd_fd;
+
+/* RGB888 → RGB565 */
+static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b)
+{
+    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+}
+
+/* Parse #RRGGBB → RGB565 */
+static uint16_t parse_color(const char *s)
+{
+    if (!s) return 0xFFFF;
+    if (s[0] == '#' && strlen(s) >= 7) {
+        unsigned int v;
+        sscanf(s + 1, "%06x", &v);
+        return rgb((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+    }
+    if (!strcmp(s, "red"))    return 0xF800;
+    if (!strcmp(s, "green"))  return 0x07E0;
+    if (!strcmp(s, "blue"))   return 0x001F;
+    if (!strcmp(s, "white"))  return 0xFFFF;
+    if (!strcmp(s, "black"))  return 0x0000;
+    if (!strcmp(s, "yellow")) return 0xFFE0;
+    if (!strcmp(s, "cyan"))   return 0x07FF;
+    return (uint16_t)strtol(s, NULL, 0);
+}
+
+static void fb_pixel(int x, int y, uint16_t c)
+{
+    if (x >= 0 && x < LCD_W && y >= 0 && y < LCD_H)
+        fb[y * LCD_W + x] = c;
+}
+
+static void fb_fill(uint16_t c)
+{
+    int i;
+    for (i = 0; i < LCD_W * LCD_H; i++) fb[i] = c;
+}
+
+static void fb_rect(int x, int y, int w, int h, uint16_t c)
+{
+    int i, j;
+    for (j = y; j < y + h && j < LCD_H; j++)
+        for (i = x; i < x + w && i < LCD_W; i++)
+            if (i >= 0 && j >= 0) fb[j * LCD_W + i] = c;
+}
+
+/* Встроенный шрифт 5x7 ASCII */
+static const uint8_t font5x7[96][5] = {
+    {0x00,0x00,0x00,0x00,0x00},{0x00,0x00,0x5F,0x00,0x00},
+    {0x00,0x07,0x00,0x07,0x00},{0x14,0x7F,0x14,0x7F,0x14},
+    {0x24,0x2A,0x7F,0x2A,0x12},{0x23,0x13,0x08,0x64,0x62},
+    {0x36,0x49,0x55,0x22,0x50},{0x00,0x05,0x03,0x00,0x00},
+    {0x00,0x1C,0x22,0x41,0x00},{0x00,0x41,0x22,0x1C,0x00},
+    {0x14,0x08,0x3E,0x08,0x14},{0x08,0x08,0x3E,0x08,0x08},
+    {0x00,0x50,0x30,0x00,0x00},{0x08,0x08,0x08,0x08,0x08},
+    {0x00,0x60,0x60,0x00,0x00},{0x20,0x10,0x08,0x04,0x02},
+    {0x3E,0x51,0x49,0x45,0x3E},{0x00,0x42,0x7F,0x40,0x00},
+    {0x42,0x61,0x51,0x49,0x46},{0x21,0x41,0x45,0x4B,0x31},
+    {0x18,0x14,0x12,0x7F,0x10},{0x27,0x45,0x45,0x45,0x39},
+    {0x3C,0x4A,0x49,0x49,0x30},{0x01,0x71,0x09,0x05,0x03},
+    {0x36,0x49,0x49,0x49,0x36},{0x06,0x49,0x49,0x29,0x1E},
+    {0x00,0x36,0x36,0x00,0x00},{0x00,0x56,0x36,0x00,0x00},
+    {0x08,0x14,0x22,0x41,0x00},{0x14,0x14,0x14,0x14,0x14},
+    {0x00,0x41,0x22,0x14,0x08},{0x02,0x01,0x51,0x09,0x06},
+    {0x32,0x49,0x79,0x41,0x3E},{0x7E,0x11,0x11,0x11,0x7E},
+    {0x7F,0x49,0x49,0x49,0x36},{0x3E,0x41,0x41,0x41,0x22},
+    {0x7F,0x41,0x41,0x22,0x1C},{0x7F,0x49,0x49,0x49,0x41},
+    {0x7F,0x09,0x09,0x09,0x01},{0x3E,0x41,0x49,0x49,0x7A},
+    {0x7F,0x08,0x08,0x08,0x7F},{0x00,0x41,0x7F,0x41,0x00},
+    {0x20,0x40,0x41,0x3F,0x01},{0x7F,0x08,0x14,0x22,0x41},
+    {0x7F,0x40,0x40,0x40,0x40},{0x7F,0x02,0x0C,0x02,0x7F},
+    {0x7F,0x04,0x08,0x10,0x7F},{0x3E,0x41,0x41,0x41,0x3E},
+    {0x7F,0x09,0x09,0x09,0x06},{0x3E,0x41,0x51,0x21,0x5E},
+    {0x7F,0x09,0x19,0x29,0x46},{0x46,0x49,0x49,0x49,0x31},
+    {0x01,0x01,0x7F,0x01,0x01},{0x3F,0x40,0x40,0x40,0x3F},
+    {0x1F,0x20,0x40,0x20,0x1F},{0x3F,0x40,0x38,0x40,0x3F},
+    {0x63,0x14,0x08,0x14,0x63},{0x07,0x08,0x70,0x08,0x07},
+    {0x61,0x51,0x49,0x45,0x43},{0x00,0x7F,0x41,0x41,0x00},
+    {0x02,0x04,0x08,0x10,0x20},{0x00,0x41,0x41,0x7F,0x00},
+    {0x04,0x02,0x01,0x02,0x04},{0x40,0x40,0x40,0x40,0x40},
+    {0x00,0x01,0x02,0x04,0x00},{0x20,0x54,0x54,0x54,0x78},
+    {0x7F,0x48,0x44,0x44,0x38},{0x38,0x44,0x44,0x44,0x20},
+    {0x38,0x44,0x44,0x48,0x7F},{0x38,0x54,0x54,0x54,0x18},
+    {0x08,0x7E,0x09,0x01,0x02},{0x0C,0x52,0x52,0x52,0x3E},
+    {0x7F,0x08,0x04,0x04,0x78},{0x00,0x44,0x7D,0x40,0x00},
+    {0x20,0x40,0x44,0x3D,0x00},{0x7F,0x10,0x28,0x44,0x00},
+    {0x00,0x41,0x7F,0x40,0x00},{0x7C,0x04,0x18,0x04,0x78},
+    {0x7C,0x08,0x04,0x04,0x78},{0x38,0x44,0x44,0x44,0x38},
+    {0x7C,0x14,0x14,0x14,0x08},{0x08,0x14,0x14,0x18,0x7C},
+    {0x7C,0x08,0x04,0x04,0x08},{0x48,0x54,0x54,0x54,0x20},
+    {0x04,0x3F,0x44,0x40,0x20},{0x3C,0x40,0x40,0x20,0x7C},
+    {0x1C,0x20,0x40,0x20,0x1C},{0x3C,0x40,0x30,0x40,0x3C},
+    {0x44,0x28,0x10,0x28,0x44},{0x0C,0x50,0x50,0x50,0x3C},
+    {0x44,0x64,0x54,0x4C,0x44},{0x00,0x08,0x36,0x41,0x00},
+    {0x00,0x00,0x7F,0x00,0x00},{0x00,0x41,0x36,0x08,0x00},
+    {0x10,0x08,0x08,0x10,0x08},{0x00,0x00,0x00,0x00,0x00},
+};
+
+static void fb_char(int x, int y, char ch, uint16_t fg, uint16_t bg, int scale)
+{
+    int idx = ch - 32;
+    const uint8_t *g;
+    int col, row, sx, sy;
+    if (idx < 0 || idx > 95) idx = 0;
+    g = font5x7[idx];
+    for (row = 0; row < 7; row++)
+        for (sy = 0; sy < scale; sy++)
+            for (col = 0; col < 5; col++)
+                for (sx = 0; sx < scale; sx++)
+                    fb_pixel(x + col*scale + sx, y + row*scale + sy,
+                             (g[col] & (1 << row)) ? fg : bg);
+    /* space between chars */
+    for (row = 0; row < 7*scale; row++)
+        for (sx = 0; sx < scale; sx++)
+            fb_pixel(x + 5*scale + sx, y + row, bg);
+}
+
+static void fb_text(int x, int y, const char *s, uint16_t fg, uint16_t bg, int scale)
+{
+    int x0 = x;
+    while (*s) {
+        if (*s == '\n') { y += 8 * scale; x = x0; s++; continue; }
+        fb_char(x, y, *s, fg, bg, scale);
+        x += 6 * scale;
+        s++;
+    }
+}
+
+static void flush_cmd(void)
+{
+    lseek(lcd_fd, 0, SEEK_SET);
+    write(lcd_fd, fb, FB_SIZE);
+}
+
+/* === Простой JSON парсер === */
+
+static char *json_str(const char *json, const char *key, char *out, int outlen)
+{
+    char search[64];
+    snprintf(search, sizeof(search), "\"%s\"", key);
+    char *p = strstr(json, search);
+    if (!p) { out[0] = 0; return out; }
+    p += strlen(search);
+    while (*p == ' ' || *p == ':' || *p == '\t') p++;
+    if (*p == '"') {
+        p++;
+        int i = 0;
+        while (*p && *p != '"' && i < outlen - 1) out[i++] = *p++;
+        out[i] = 0;
+    } else {
+        int i = 0;
+        while (*p && *p != ',' && *p != '}' && i < outlen - 1) out[i++] = *p++;
+        out[i] = 0;
+    }
+    return out;
+}
+
+static int json_int(const char *json, const char *key, int def)
+{
+    char buf[32];
+    json_str(json, key, buf, sizeof(buf));
+    if (buf[0]) return atoi(buf);
+    return def;
+}
+
+static void handle_cmd(const char *json)
+{
+    char cmd[32], color[32], text[256];
+
+    json_str(json, "cmd", cmd, sizeof(cmd));
+
+    if (!strcmp(cmd, "clear")) {
+        json_str(json, "color", color, sizeof(color));
+        fb_fill(parse_color(color[0] ? color : "black"));
+    }
+    else if (!strcmp(cmd, "rect")) {
+        int x = json_int(json, "x", 0);
+        int y = json_int(json, "y", 0);
+        int w = json_int(json, "w", 10);
+        int h = json_int(json, "h", 10);
+        json_str(json, "color", color, sizeof(color));
+        fb_rect(x, y, w, h, parse_color(color));
+    }
+    else if (!strcmp(cmd, "text")) {
+        int x = json_int(json, "x", 0);
+        int y = json_int(json, "y", 0);
+        int size = json_int(json, "size", 1);
+        json_str(json, "color", color, sizeof(color));
+        char bg_color[32];
+        json_str(json, "bg", bg_color, sizeof(bg_color));
+        json_str(json, "text", text, sizeof(text));
+        /* unescape \n */
+        char *p;
+        while ((p = strstr(text, "\\n")) != NULL) { p[0] = '\n'; memmove(p+1, p+2, strlen(p+2)+1); }
+        fb_text(x, y, text, parse_color(color[0] ? color : "white"),
+                parse_color(bg_color[0] ? bg_color : "black"), size);
+    }
+    else if (!strcmp(cmd, "flush")) {
+        flush_cmd();
+        return;
+    }
+    else if (!strcmp(cmd, "fps")) {
+        char buf[32];
+        int fps = json_int(json, "value", 10);
+        snprintf(buf, sizeof(buf), "fps %d\n", fps);
+        write(lcd_fd, buf, strlen(buf));
+        return;
+    }
+
+    /* Auto-flush after draw commands */
+    flush_cmd();
+}
+
+int main(int argc, char *argv[])
+{
+    int sock_fd, client_fd;
+    struct sockaddr_un addr;
+
+    /* Open /dev/lcd */
+    lcd_fd = open("/dev/lcd", O_RDWR);
+    if (lcd_fd < 0) { perror("/dev/lcd"); return 1; }
+
+    printf("lcd_render: framebuffer %dx%d (%d bytes), write mode\n", LCD_W, LCD_H, FB_SIZE);
+
+    /* Draw initial splash */
+    fb_fill(0x0000);
+    fb_text(52, 80, "by sublimity", 0xFFFF, 0x0000, 3);
+    fb_text(40, 130, "For OpenWRT", 0xFFE0, 0x0000, 3);
+    fb_text(60, 200, "lcd_render ready", 0x07E0, 0x0000, 1);
+    flush_cmd();
+
+    /* One-shot mode: if args, process and exit */
+    if (argc > 1) {
+        handle_cmd(argv[1]);
+        munmap(fb, FB_SIZE);
+        close(lcd_fd);
+        return 0;
+    }
+
+    /* Unix socket server */
+    unlink(SOCK_PATH);
+    sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (sock_fd < 0) { perror("socket"); return 1; }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, SOCK_PATH, sizeof(addr.sun_path) - 1);
+
+    if (bind(sock_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) { perror("bind"); return 1; }
+    listen(sock_fd, 5);
+    chmod(SOCK_PATH, 0666);
+
+    printf("lcd_render: listening on %s\n", SOCK_PATH);
+
+    while (1) {
+        client_fd = accept(sock_fd, NULL, NULL);
+        if (client_fd < 0) continue;
+
+        char buf[4096];
+        int n;
+        while ((n = read(client_fd, buf, sizeof(buf) - 1)) > 0) {
+            buf[n] = 0;
+            /* Handle each line */
+            char *line = strtok(buf, "\n");
+            while (line) {
+                if (line[0] == '{')
+                    handle_cmd(line);
+                line = strtok(NULL, "\n");
+            }
+        }
+        close(client_fd);
+    }
+
+    close(lcd_fd);
+    close(sock_fd);
+    return 0;
+}

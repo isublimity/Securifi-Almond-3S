@@ -1,0 +1,4 @@
+out/*.ko
+out/*.o
+out/lcd_render
+out/pic_test
