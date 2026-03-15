@@ -55,14 +55,11 @@ package/lcd-gpio/
 ├── Makefile              # OpenWrt package makefile
 └── src/
     ├── Makefile          # obj-m += lcd_drv.o
-    ├── lcd_drv.c         # Исходник модуля
-    └── lcd_gpio.c        # Старый модуль (устаревший)
+    └── lcd_drv.c         # Исходник модуля
 ```
 
-**ВАЖНО**: Пакетный Makefile (`package/lcd-gpio/Makefile`) сейчас ссылается на `lcd_gpio.ko`. Для перехода на `lcd_drv.ko` нужно обновить:
-
 ```makefile
-# package/lcd-gpio/Makefile — ОБНОВИТЬ:
+# package/lcd-gpio/Makefile
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
@@ -234,7 +231,4 @@ lua /tmp/lcd_ui.lua &            # UI с кнопками
 | Проблема | Причина | Решение |
 |----------|---------|---------|
 | Тач не работает | kmod-i2c-mt7621 захватывает SM0 | `rmmod i2c_mt7621` перед загрузкой lcd_drv |
-| OpenVPN не ставится | Нет kmod-tun в прошивке | Добавить `CONFIG_PACKAGE_kmod-tun=y` в .config |
-| lcd_render текст не рисуется | JSON парсер путал ключ "text" с значением cmd | Исправлено в текущей версии |
-| lcd_render server mode не обновляет экран | Не было llseek в fops ядра | Исправлено: `.llseek = default_llseek` |
-| Цвета #07E0 показывают чёрный | Парсер ожидал только #RRGGBB (7 символов) | Исправлено: поддержка #XXXX как raw RGB565 |
+| OpenVPN не ставится через opkg | Нет kmod-tun в прошивке | Добавить `CONFIG_PACKAGE_kmod-tun=y` в .config, пересобрать |
