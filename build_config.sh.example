@@ -1,0 +1,14 @@
+# build_config.sh — Приватные настройки сборки
+# Скопируйте этот файл: cp build_config.sh.example build_config.sh
+# Заполните своими данными. Файл НЕ коммитится в git.
+
+# SSH адрес сервера сборки с установленным OpenWrt SDK
+# Требования: Linux x86_64, ~10 ГБ RAM, ~30 ГБ диска
+# На сервере должен быть клон: git clone https://github.com/isublimity/openwrt_almond.git
+BUILD_SERVER="user@build-server.example.com"
+
+# Путь к openwrt_almond на сервере сборки
+BUILD_DIR="/path/to/openwrt_almond"
+
+# SSH адрес роутера Almond 3S (для деплоя)
+ROUTER="root@192.168.11.1"
