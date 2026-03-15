@@ -223,8 +223,44 @@ ssh root@192.168.11.1 'rmmod lcd_drv; rmmod i2c_mt7621; insmod /tmp/lcd_drv.ko'
 ssh root@192.168.11.1
 rmmod i2c_mt7621 2>/dev/null    # обязательно! конфликтует с тачем
 /tmp/lcd_render &                # рендер-сервер (unix socket)
-lua /tmp/lcd_ui.lua &            # UI с кнопками
+lua /tmp/lcd_ui.lua &            # UI с кнопками + скринсейвер
 ```
+
+### Ioctl команды /dev/lcd
+
+| cmd | arg | Описание |
+|-----|-----|----------|
+| 0 | — | flush framebuffer |
+| 1 | int[3] | read touch {x, y, pressed} |
+| 2 | u8[17] | read PIC battery (заблокировано без калибровки) |
+| 3 | u8[17] | raw PIC read |
+| 4 | 0 | backlight OFF |
+| 4 | 1 | backlight ON |
+| 4 | 2 | show splash (4PDA bitmap из ядра) |
+
+### Защита от выгорания дисплея
+
+lcd_ui.lua реализует state machine:
+
+```
+active (UI)  --30 сек-->  screensaver (4PDA лого)  --30 сек-->  off (подсветка выкл)
+     ^                         |                                     |
+     |                         v                                     v
+     +--------  touch  --------+----------  touch  ------------------+
+```
+
+Параметры (в lcd_ui.lua):
+- `IDLE_TO_SAVER = 30` — секунд до скринсейвера
+- `IDLE_TO_OFF = 30` — секунд от скринсейвера до выключения подсветки
+
+### Компоненты LCD стека
+
+| Компонент | Тип | Описание |
+|-----------|-----|----------|
+| lcd_drv.ko | kernel | Framebuffer, GPIO bit-bang, touch, backlight, splash |
+| lcd_render | userspace C | JSON рендерер (текст, прямоугольники), unix socket |
+| lcdlib.so | Lua C модуль | touch/backlight/splash/usleep без fork |
+| lcd_ui.lua | Lua | UI: кнопки, графики, скринсейвер, state machine |
 
 ## Известные проблемы
 
