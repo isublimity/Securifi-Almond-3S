@@ -63,13 +63,17 @@ build_userspace() {
         -o "$OUT_DIR/lcd_touch_read" "$MODULES_DIR/lcd_touch_read.c"
     echo ">>> $OUT_DIR/lcd_touch_read"
 
-    ls -la "$OUT_DIR/lcd_render" "$OUT_DIR/pic_test" "$OUT_DIR/lcd_touch_read"
+    zig cc -target mipsel-linux-musleabi -O2 -static \
+        -o "$OUT_DIR/lcd_touch_poll" "$MODULES_DIR/lcd_touch_poll.c"
+    echo ">>> $OUT_DIR/lcd_touch_poll"
+
+    ls -la "$OUT_DIR/lcd_render" "$OUT_DIR/pic_test" "$OUT_DIR/lcd_touch_read" "$OUT_DIR/lcd_touch_poll"
 }
 
 deploy() {
     echo "=== Deploying to $ROUTER ==="
     scp -O "$OUT_DIR/lcd_drv.ko" "$OUT_DIR/lcd_render" "$OUT_DIR/pic_test" \
-        "$OUT_DIR/lcd_touch_read" "$ROUTER:/tmp/"
+        "$OUT_DIR/lcd_touch_read" "$OUT_DIR/lcd_touch_poll" "$ROUTER:/tmp/"
     echo ">>> Binaries uploaded"
 
     # Deploy LCD scripts and UI

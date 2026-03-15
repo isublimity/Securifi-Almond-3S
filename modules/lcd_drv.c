@@ -20,6 +20,8 @@
 #include <linux/vmalloc.h>
 #include <linux/i2c.h>
 
+#include "splash_4pda.h"
+
 #define DEVICE_NAME  "lcd"
 #define LCD_W        320
 #define LCD_H        240
@@ -624,7 +626,20 @@ static int __init lcd_drv_init(void)
     lcd_init_ili9341();
     shadow_dir |= BIT_BL; gw(GPIO_DIR_OFF, shadow_dir);
 
-    /* Initial: black screen */
+    /* Splash screen: 4PDA logo, 1 second */
+    {
+        u16 *fb16 = (u16 *)framebuffer;
+        int i, j = 0;
+        for (i = 0; i < SPLASH_RLE_LEN && j < LCD_W * LCD_H; i++) {
+            int k;
+            for (k = 0; k < splash_cnt[i] && j < LCD_W * LCD_H; k++)
+                fb16[j++] = splash_clr[i];
+        }
+        lcd_flush_fb();
+        mdelay(1500);
+    }
+
+    /* Clear to black after splash */
     memset(framebuffer, 0, FB_SIZE);
     lcd_flush_fb();
 
