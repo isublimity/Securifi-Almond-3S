@@ -8,7 +8,7 @@
 ## Требования
 
 - **Ветка**: [`almond-3s`](https://github.com/isublimity/openwrt_almond/tree/almond-3s) (базируется на `openwrt-24.10`)
-- **Ядро**: 6.6.x (**ТОЛЬКО!** Ядро 6.12.x несовместимо с U-Boot — кирпич)
+- **Ядро**: 6.6.x (проверено, стабильно). Ядро 6.12.x (OpenWrt 25.12) — не проверялось нами, но по данным [ar2r2806 на 4PDA](https://4pda.to/) работает с U-Boot от [DragonBluep](https://github.com/DragonBluep/uboot-mt7621). Требует проверки
 - **Сервер сборки**: ~10 ГБ RAM, ~30 ГБ диска, Linux x86_64
 - **Тулчейн**: собирается автоматически (GCC 13.3, musl, mipsel_24kc)
 

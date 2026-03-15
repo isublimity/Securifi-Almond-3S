@@ -108,7 +108,7 @@ AT+QCFG="band",0,44 # Lock to Band 3+7
 - OpenWrt build system
 - Branch: `almond-3s` (based on `openwrt-24.10`, kernel 6.6.x)
 
-**IMPORTANT**: Only use kernel 6.6.x branch. Kernel 6.12.x is NOT compatible with the bootloader.
+**Note**: Kernel 6.6.x is tested and stable. Kernel 6.12.x (OpenWrt 25.12) may work with a different U-Boot (e.g. [DragonBluep](https://github.com/DragonBluep/uboot-mt7621)) but has not been verified by us.
 
 ### Quick Build
 
