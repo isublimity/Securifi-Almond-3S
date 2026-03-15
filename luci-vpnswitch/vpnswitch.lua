@@ -97,20 +97,6 @@ function get_ip_info()
 		"sleep 6; wait 2>/dev/null"
 	)
 
-	if raw and raw ~= "" then
-		local ok, data = pcall(json.parse, raw)
-		if ok and data then
-			result.ip = data.ip or "N/A"
-			local h = data.headers or {}
-			result.country = h["x-geoip-country-name"] or ""
-			result.city = h["x-geoip-city"] or ""
-			result.region = h["x-geoip-region"] or ""
-			result.geo = data.geo or ""
-		end
-	end
-	if #result.checks == 0 then
-	end
-
 	local raw2 = luci.sys.exec("cat /tmp/ipcheck_ipapi 2>/dev/null")
 	if raw2 and raw2 ~= "" then
 		local ok2, d2 = pcall(json.parse, raw2)
