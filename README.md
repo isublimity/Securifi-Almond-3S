@@ -192,6 +192,17 @@ echo 4 > "/proc/irq/31/smp_affinity"   # WiFi 2.4GHz → Core2t1
 echo 8 > "/proc/irq/32/smp_affinity"   # WiFi 5GHz → Core2t2
 ```
 
+## Source Code
+
+- **OpenWrt fork with Almond 3S support**: [openwrt_almond/almond-3s](https://github.com/isublimity/openwrt_almond/commits/almond-3s/)
+- **This documentation**: [Securifi-Almond-3S](https://github.com/isublimity/Securifi-Almond-3S)
+
+## Detailed Documentation
+
+- [LCD.md](LCD.md) — Display driver deep dive: ILI9341 init, GPIO bit-bang, framebuffer
+- [TOUCH.md](TOUCH.md) — Touchscreen driver: SX8650 protocol, calibration, coordinates
+- [LCD_RENDER.md](LCD_RENDER.md) — Userspace renderer: JSON protocol, unix socket API, examples
+
 ## Credits
 
 - Display and touch reverse engineering from original firmware (kernel 3.10.14)
