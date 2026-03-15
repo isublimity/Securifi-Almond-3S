@@ -529,7 +529,7 @@ static int touch_fn(void *data)
             was_pressed = 1;
         } else {
             no_touch_count++;
-            if (no_touch_count > 3 && was_pressed) {
+            if (no_touch_count > 10 && was_pressed) {  /* 500ms hold */
                 touch_pressed = 0;
                 was_pressed = 0;
                 pr_info("lcd_drv: touch UP\n");
