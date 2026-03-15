@@ -35,10 +35,17 @@ static uint16_t rgb(uint8_t r, uint8_t g, uint8_t b)
 static uint16_t parse_color(const char *s)
 {
     if (!s) return 0xFFFF;
-    if (s[0] == '#' && strlen(s) >= 7) {
+    if (s[0] == '#') {
+        int len = strlen(s + 1);
         unsigned int v;
-        sscanf(s + 1, "%06x", &v);
-        return rgb((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+        if (len >= 6) {
+            /* #RRGGBB → RGB888 → RGB565 */
+            sscanf(s + 1, "%06x", &v);
+            return rgb((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+        }
+        /* #XXXX or #XXX → raw RGB565 */
+        sscanf(s + 1, "%x", &v);
+        return (uint16_t)v;
     }
     if (!strcmp(s, "red"))    return 0xF800;
     if (!strcmp(s, "green"))  return 0x07E0;
@@ -154,8 +161,13 @@ static void fb_text(int x, int y, const char *s, uint16_t fg, uint16_t bg, int s
 
 static void flush_cmd(void)
 {
+    int total = 0, n;
     lseek(lcd_fd, 0, SEEK_SET);
-    write(lcd_fd, fb, FB_SIZE);
+    while (total < FB_SIZE) {
+        n = write(lcd_fd, (char *)fb + total, FB_SIZE - total);
+        if (n <= 0) break;
+        total += n;
+    }
 }
 
 /* === Простой JSON парсер === */
@@ -163,11 +175,19 @@ static void flush_cmd(void)
 static char *json_str(const char *json, const char *key, char *out, int outlen)
 {
     char search[64];
+    const char *found;
+    char *p;
     snprintf(search, sizeof(search), "\"%s\"", key);
-    char *p = strstr(json, search);
-    if (!p) { out[0] = 0; return out; }
-    p += strlen(search);
-    while (*p == ' ' || *p == ':' || *p == '\t') p++;
+    /* Find "key" followed by : (skip matches in values) */
+    found = json;
+    while ((found = strstr(found, search)) != NULL) {
+        p = (char *)found + strlen(search);
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == ':') { p++; break; }  /* found the KEY, not a value */
+        found++;  /* skip this match, try next */
+    }
+    if (!found) { out[0] = 0; return out; }
+    while (*p == ' ' || *p == '\t') p++;
     if (*p == '"') {
         p++;
         int i = 0;
@@ -248,20 +268,19 @@ int main(int argc, char *argv[])
 
     printf("lcd_render: framebuffer %dx%d (%d bytes), write mode\n", LCD_W, LCD_H, FB_SIZE);
 
-    /* Draw initial splash */
+    /* One-shot mode: if args, process and exit (no splash) */
+    if (argc > 1) {
+        handle_cmd(argv[1]);
+        close(lcd_fd);
+        return 0;
+    }
+
+    /* Draw initial splash (server mode only) */
     fb_fill(0x0000);
     fb_text(52, 80, "by sublimity", 0xFFFF, 0x0000, 3);
     fb_text(40, 130, "For OpenWRT", 0xFFE0, 0x0000, 3);
     fb_text(60, 200, "lcd_render ready", 0x07E0, 0x0000, 1);
     flush_cmd();
-
-    /* One-shot mode: if args, process and exit */
-    if (argc > 1) {
-        handle_cmd(argv[1]);
-        munmap(fb, FB_SIZE);
-        close(lcd_fd);
-        return 0;
-    }
 
     /* Unix socket server */
     unlink(SOCK_PATH);

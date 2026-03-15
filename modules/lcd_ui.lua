@@ -3,16 +3,14 @@
 -- lcd_ui.lua — Скрипт-движок для LCD дисплея Almond 3S
 --
 -- Сканирует /etc/lcd_scripts/*.lua, показывает как кнопки на дисплее.
--- Каждый скрипт — таблица: {name, icon, color, action(), status()}
 -- Тач нажатие на кнопку → вызывает action()
 -- Периодически вызывает status() для обновления текста
 --
--- Использует lcd_render через unix socket /tmp/lcd.sock
--- Использует /dev/lcd ioctl(1) для чтения тача
+-- Отправляет JSON команды в lcd_render через pipe (echo | nc -U)
+-- Читает тач через /tmp/lcd_touch_read
 --
-
-local socket = require("socket")
-local unix = require("socket.unix")
+-- Без зависимостей кроме стандартного Lua 5.1
+--
 
 -- LCD dimensions
 local LCD_W = 320
@@ -27,34 +25,14 @@ local C_RED    = "red"
 local C_YELLOW = "yellow"
 local C_CYAN   = "cyan"
 local C_GRAY   = "#4208"
+local C_BTN    = "#1082"
 
--- === LCD Render Socket ===
+local SOCK = "/tmp/lcd.sock"
 
-local sock = nil
-
-local function lcd_connect()
-    if sock then pcall(function() sock:close() end) end
-    sock = unix()
-    local ok, err = sock:connect("/tmp/lcd.sock")
-    if not ok then
-        sock = nil
-        return false
-    end
-    return true
-end
+-- === LCD commands via nc -U ===
 
 local function lcd_send(json_str)
-    if not sock then
-        if not lcd_connect() then return false end
-    end
-    local ok, err = sock:send(json_str .. "\n")
-    if not ok then
-        -- Reconnect and retry
-        if lcd_connect() then
-            sock:send(json_str .. "\n")
-        end
-    end
-    return true
+    os.execute("echo '" .. json_str .. "' | socat - UNIX-CONNECT:" .. SOCK .. " 2>/dev/null")
 end
 
 local function lcd_clear(color)
@@ -75,25 +53,13 @@ local function lcd_rect(x, y, w, h, color)
     ))
 end
 
--- === Touch reader via ioctl ===
-
-local ffi_ok, ffi = pcall(require, "ffi")
+-- === Touch reader ===
 
 local function read_touch()
-    -- Read touch via /dev/lcd ioctl cmd=1
-    local f = io.open("/dev/lcd", "rb")
-    if not f then return nil end
-
-    -- Use C ioctl: we need to call ioctl(fd, 1, &data)
-    -- For Lua without FFI, use a helper binary
-    f:close()
-
-    -- Fallback: use pic_test-style helper or direct read
     local p = io.popen("/tmp/lcd_touch_read 2>/dev/null", "r")
     if not p then return nil end
     local line = p:read("*l")
     p:close()
-
     if not line then return nil end
     local x, y, pressed = line:match("(%d+) (%d+) (%d+)")
     if pressed == "1" then
@@ -125,7 +91,6 @@ end
 
 -- === UI Layout ===
 
--- Grid: 2 columns, rows adapt to script count
 local COLS = 2
 local BTN_W = 150
 local BTN_H = 50
@@ -144,8 +109,6 @@ end
 local function draw_header()
     lcd_rect(0, 0, LCD_W, HEADER_H, C_HEADER)
     lcd_text(8, 6, "Almond 3S", C_WHITE, C_HEADER, 2)
-
-    -- Time
     local t = os.date("%H:%M")
     lcd_text(LCD_W - 70, 6, t, C_CYAN, C_HEADER, 2)
 end
@@ -163,15 +126,10 @@ local function draw_button(idx, script)
         end
     end
 
-    -- Button background
-    lcd_rect(x, y, w, h, "#1082")
-
-    -- Name
-    lcd_text(x + 4, y + 4, script.name or "?", script.color or C_WHITE, "#1082", 2)
-
-    -- Status line
+    lcd_rect(x, y, w, h, C_BTN)
+    lcd_text(x + 4, y + 4, script.name or "?", script.color or C_WHITE, C_BTN, 2)
     if status_text ~= "" then
-        lcd_text(x + 4, y + 28, status_text, status_color, "#1082", 1)
+        lcd_text(x + 4, y + 28, status_text, status_color, C_BTN, 1)
     end
 end
 
@@ -187,38 +145,49 @@ local function handle_touch(tx, ty)
     for i, s in ipairs(scripts) do
         local x, y, w, h = btn_rect(i)
         if tx >= x and tx <= x + w and ty >= y and ty <= y + h then
-            -- Flash button
+            -- Flash button white
             lcd_rect(x, y, w, h, C_WHITE)
             lcd_text(x + 4, y + 4, s.name, C_BG, C_WHITE, 2)
+            lcd_text(x + 4, y + 28, "...", C_GRAY, C_WHITE, 1)
 
             if s.action then
                 pcall(s.action)
             end
 
-            -- Redraw after 500ms
-            socket.sleep(0.5)
+            os.execute("sleep 1")
             draw_all()
-            return
+            return true
         end
     end
+    return false
 end
 
 -- === Main loop ===
+
+local function sleep_ms(ms)
+    -- Busy-wait for sub-second timing (no luasocket)
+    -- Use usleep via small C helper or just os.execute
+    if ms >= 1000 then
+        os.execute("sleep " .. math.floor(ms / 1000))
+    else
+        os.execute("usleep " .. (ms * 1000) .. " 2>/dev/null")
+    end
+end
 
 local function main()
     print("lcd_ui: starting")
     load_scripts()
     print("lcd_ui: loaded " .. #scripts .. " scripts")
 
-    if not lcd_connect() then
-        io.stderr:write("lcd_ui: cannot connect to /tmp/lcd.sock, waiting...\n")
-        for i = 1, 30 do
-            socket.sleep(1)
-            if lcd_connect() then break end
-        end
+    -- Wait for lcd_render socket
+    for i = 1, 10 do
+        if os.execute("test -S " .. SOCK) == 0 then break end
+        print("lcd_ui: waiting for " .. SOCK)
+        os.execute("sleep 1")
     end
 
     draw_all()
+    print("lcd_ui: UI drawn, entering main loop")
 
     local last_draw = os.time()
     local touch_cooldown = 0
@@ -227,8 +196,9 @@ local function main()
         -- Check touch
         local tx, ty = read_touch()
         if tx and os.time() > touch_cooldown then
-            handle_touch(tx, ty)
-            touch_cooldown = os.time() + 1  -- 1 sec cooldown
+            if handle_touch(tx, ty) then
+                touch_cooldown = os.time() + 2
+            end
         end
 
         -- Refresh every 10 seconds
@@ -237,7 +207,7 @@ local function main()
             last_draw = os.time()
         end
 
-        socket.sleep(0.1)
+        sleep_ms(200)
     end
 end
 

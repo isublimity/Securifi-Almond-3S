@@ -427,8 +427,9 @@ static int sx8650_read_xy(int *rx, int *ry)
     }
 
     if (raw_x > 0 || raw_y > 0) {
-        *rx = (raw_x > 0) ? (4096 - raw_x) * 320 / 4096 : 160;
-        *ry = (raw_y > 0) ? raw_y * 240 / 4096 : 120;
+        /* Landscape mode (MADCTL=0xA8): axes swapped + both inverted */
+        *rx = (raw_y > 0) ? (4096 - raw_y) * 320 / 4096 : 160;
+        *ry = (raw_x > 0) ? raw_x * 240 / 4096 : 120;
         return 1;
     }
     return 0;
@@ -582,6 +583,7 @@ static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 static const struct file_operations lcd_fops = {
     .owner          = THIS_MODULE,
     .write          = lcd_fb_write,
+    .llseek         = default_llseek,
     .unlocked_ioctl = lcd_ioctl,
 };
 
@@ -629,14 +631,11 @@ static int __init lcd_drv_init(void)
     /* SX8650 touchscreen init */
     sx8650_hw_init();
 
-    /* PIC16 battery: get I2C adapter */
-    pic_i2c_adap = i2c_get_adapter(0);
-    if (pic_i2c_adap) {
-        pr_info("lcd_drv: PIC I2C adapter found: %s\n", pic_i2c_adap->name);
-        pic_read_battery();
-    } else {
-        pr_warn("lcd_drv: PIC I2C adapter 0 not found\n");
-    }
+    /* PIC16 battery: disabled at boot.
+     * i2c_get_adapter() and i2c_transfer() reconfigure SM0 registers
+     * which breaks palmbus-based touch reads.
+     * PIC will be initialized on-demand via ioctl. */
+    pr_info("lcd_drv: PIC battery disabled (no i2c_get_adapter at boot)\n");
 
     /* Start render thread */
     render_thread = kthread_run(render_fn, NULL, "lcd_render");
