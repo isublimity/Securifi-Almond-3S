@@ -1,0 +1,249 @@
+<%+header%>
+
+<style>
+.vpn-container { max-width: 600px; margin: 20px auto; text-align: center; }
+.vpn-btn { display: inline-block; width: 140px; padding: 16px 10px; margin: 8px;
+  border: 2px solid #ccc; border-radius: 8px; cursor: pointer;
+  font-size: 16px; font-weight: bold; background: #f9f9f9; color: #333;
+  transition: all 0.2s; }
+.vpn-btn:hover { background: #e9e9e9; }
+.vpn-btn:disabled { opacity: 0.5; cursor: wait; }
+.vpn-btn.active { border-color: #0a0; background: #e6ffe6; color: #060; }
+.vpn-btn.active-off { border-color: #c00; background: #ffe6e6; color: #600; }
+.vpn-status { margin: 20px 0; padding: 16px; border-radius: 8px; background: #f0f0f0; }
+.vpn-ip { font-family: monospace; font-size: 24px; font-weight: bold; color: #06c; }
+.vpn-geo { font-size: 16px; color: #555; margin-top: 6px; }
+.vpn-spinner { display: none; margin: 10px auto; font-size: 16px; color: #666; }
+.check-table { width: 100%; margin-top: 16px; border-collapse: collapse; text-align: left; font-size: 14px; }
+.check-table th { background: #e0e0e0; padding: 6px 10px; }
+.check-table td { padding: 6px 10px; border-bottom: 1px solid #eee; font-family: monospace; }
+.check-ok { color: #0a0; }
+.check-fail { color: #c00; }
+.mode-label { font-size: 20px; }
+
+/* Signal indicator */
+.signal-box { margin: 16px 0; padding: 14px; border-radius: 8px; background: #f8f8ff; border: 1px solid #dde; }
+.signal-bars { display: inline-flex; align-items: flex-end; gap: 3px; vertical-align: middle; margin-right: 10px; }
+.signal-bars .bar { width: 8px; background: #ccc; border-radius: 2px; transition: background 0.3s; }
+.signal-bars .bar.on { background: #0a0; }
+.signal-bars .bar.on.weak { background: #c80; }
+.signal-bars .bar.on.none { background: #c00; }
+.signal-bars .bar:nth-child(1) { height: 8px; }
+.signal-bars .bar:nth-child(2) { height: 14px; }
+.signal-bars .bar:nth-child(3) { height: 20px; }
+.signal-bars .bar:nth-child(4) { height: 26px; }
+.signal-bars .bar:nth-child(5) { height: 32px; }
+.signal-detail { font-size: 13px; color: #666; margin-top: 6px; font-family: monospace; }
+.signal-tech { font-weight: bold; font-size: 15px; color: #333; }
+</style>
+
+<div class="vpn-container">
+  <h2>VPN Switch</h2>
+
+  <!-- Signal -->
+  <div class="signal-box">
+    <div>
+      <span class="signal-bars" id="signal-bars">
+        <span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span><span class="bar"></span>
+      </span>
+      <span class="signal-tech" id="signal-tech">LTE</span>
+      <span id="signal-label" style="font-size:15px;color:#333"></span>
+    </div>
+    <div class="signal-detail" id="signal-detail">...</div>
+  </div>
+
+  <!-- VPN Status -->
+  <div class="vpn-status">
+    <div>Mode: <span class="mode-label" id="current-mode">...</span></div>
+    <div style="margin-top:10px">Exit IP: <span class="vpn-ip" id="current-ip">...</span></div>
+    <div class="vpn-geo" id="current-geo"></div>
+  </div>
+
+  <div id="vpn-spinner" class="vpn-spinner">Switching...</div>
+
+  <button class="vpn-btn" id="btn-wg" onclick="vpnSwitch('wg')">&#x1f512; WireGuard</button>
+  <button class="vpn-btn" id="btn-ovpn" onclick="vpnSwitch('ovpn')">&#x1f510; OpenVPN</button>
+  <button class="vpn-btn" id="btn-off" onclick="vpnSwitch('off')">&#x26a0; OFF</button>
+
+  <div style="margin-top:8px">
+    <button class="vpn-btn" style="width:300px;padding:8px;font-size:13px;background:#eef" id="btn-refresh" onclick="vpnStatus()">&#x1f504; Refresh IP</button>
+  </div>
+
+  <table class="check-table" id="check-table">
+    <thead><tr><th>Service</th><th>IP</th><th>GEO</th></tr></thead>
+    <tbody id="check-body"></tbody>
+  </table>
+
+  <!-- iperf3 Speed Test -->
+  <div class="signal-box" style="margin-top:20px;text-align:center">
+    <h3 style="margin:0 0 10px">Speed Test (iperf3 → Freak)</h3>
+    <div>
+      <button class="vpn-btn" style="width:80px;padding:10px 5px;font-size:14px" onclick="runIperf(3)">3 sec</button>
+      <button class="vpn-btn" style="width:80px;padding:10px 5px;font-size:14px" onclick="runIperf(5)">5 sec</button>
+      <button class="vpn-btn" style="width:80px;padding:10px 5px;font-size:14px" onclick="runIperf(10)">10 sec</button>
+      <label style="margin-left:12px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="iperf-reverse"> Upload
+      </label>
+    </div>
+    <div id="iperf-spinner" style="display:none;margin:10px 0;font-size:14px;color:#666">Running speed test...</div>
+    <div id="iperf-result" style="margin-top:10px"></div>
+  </div>
+</div>
+
+<script>
+var statusUrl = '<%=url("admin/services/vpnswitch/status")%>';
+var switchUrl = '<%=url("admin/services/vpnswitch/switch")%>';
+var signalUrl = '<%=url("admin/services/vpnswitch/signal")%>';
+var iperfUrl = '<%=url("admin/services/vpnswitch/iperf")%>';
+var modeLabels = {wg: "WireGuard", ovpn: "OpenVPN", off: "OFF"};
+
+function fmtSpeed(bps) {
+  if (!bps || bps === 0) return "0";
+  if (bps >= 1e6) return (bps / 1e6).toFixed(2) + " Mbps";
+  if (bps >= 1e3) return (bps / 1e3).toFixed(1) + " Kbps";
+  return bps.toFixed(0) + " bps";
+}
+
+function fmtBytes(b) {
+  if (!b) return "0";
+  if (b >= 1e9) return (b / 1e9).toFixed(2) + " GB";
+  if (b >= 1e6) return (b / 1e6).toFixed(1) + " MB";
+  if (b >= 1e3) return (b / 1e3).toFixed(0) + " KB";
+  return b + " B";
+}
+
+function runIperf(duration) {
+  var rev = document.getElementById("iperf-reverse").checked ? "1" : "0";
+  var spinner = document.getElementById("iperf-spinner");
+  var result = document.getElementById("iperf-result");
+  spinner.style.display = "block";
+  spinner.textContent = "Running " + duration + "s speed test...";
+  result.innerHTML = "";
+
+  XHR.get(iperfUrl, {t: duration, r: rev}, function(x, data) {
+    spinner.style.display = "none";
+    if (!data) { result.innerHTML = '<span style="color:#c00">No response</span>'; return; }
+    if (!data.ok) {
+      result.innerHTML = '<span style="color:#c00">Error: ' + (data.error || "failed") + '</span>' +
+        '<br><small>Host: ' + data.host + ':' + data.port + '</small>';
+      if (data.raw) result.innerHTML += '<br><small style="color:#999">' + data.raw + '</small>';
+      return;
+    }
+
+    var dir = data.reverse ? "Bidirectional" : "Download";
+    var html = '<div style="font-size:28px;font-weight:bold;color:#06c;font-family:monospace">' +
+      data.bandwidth_mbps.toFixed(2) + ' Mbps</div>' +
+      '<div style="font-size:13px;color:#666;margin-top:4px">' +
+      dir + ' | ' + data.transfer_mb.toFixed(1) + ' MB in ' + data.duration + 's | ' +
+      data.host + ':' + data.port + '</div>';
+
+    if (data.intervals && data.intervals.length > 0) {
+      var maxMbps = 0;
+      data.intervals.forEach(function(iv) { if (iv.mbps > maxMbps) maxMbps = iv.mbps; });
+      html += '<div style="display:flex;align-items:flex-end;gap:2px;height:60px;margin-top:10px;justify-content:center">';
+      data.intervals.forEach(function(iv) {
+        var h = maxMbps > 0 ? Math.max(2, Math.round(iv.mbps / maxMbps * 56)) : 2;
+        html += '<div title="' + iv.mbps.toFixed(1) + ' Mbps" style="width:' +
+          Math.max(8, Math.round(200/data.intervals.length)) +
+          'px;height:' + h + 'px;background:#4a9;border-radius:2px"></div>';
+      });
+      html += '</div>';
+    }
+
+    result.innerHTML = html;
+  });
+}
+
+function updateSignal(sig) {
+  if (!sig) return;
+  var bars = document.getElementById("signal-bars").children;
+  var cls = sig.bars <= 1 ? "none" : (sig.bars <= 2 ? "weak" : "");
+  for (var i = 0; i < 5; i++) {
+    bars[i].className = "bar" + (i < sig.bars ? " on" + (cls ? " "+cls : "") : "");
+  }
+  var tech = sig.tech || "?";
+  if (sig.band) tech += " B" + sig.band;
+  document.getElementById("signal-tech").textContent = tech;
+
+  var labels = ["No signal", "Very weak", "Weak", "Fair", "Good", "Excellent"];
+  document.getElementById("signal-label").textContent = labels[sig.bars] || "";
+
+  var parts = [];
+  if (sig.rsrp) parts.push("RSRP: " + sig.rsrp + " dBm");
+  if (sig.rsrq) parts.push("RSRQ: " + sig.rsrq + " dB");
+  if (sig.sinr !== undefined) parts.push("SINR: " + sig.sinr + " dB");
+  parts.push("CSQ: " + sig.csq + "/31");
+  if (sig.rssi) parts.push("RSSI: " + sig.rssi + " dBm");
+  document.getElementById("signal-detail").textContent = parts.join("  |  ");
+}
+
+function updateUI(data) {
+  if (!data) return;
+  document.getElementById("current-mode").innerHTML = '<strong>' + (modeLabels[data.mode] || data.mode) + '</strong>';
+  if (data.ip) document.getElementById("current-ip").textContent = data.ip;
+
+  var geo = '';
+  if (data.city || data.country) {
+    geo = [data.city, data.region, data.country].filter(function(x){return x;}).join(', ');
+  }
+  document.getElementById("current-geo").textContent = geo;
+
+  ["wg","ovpn","off"].forEach(function(m) {
+    var btn = document.getElementById("btn-" + m);
+    btn.className = "vpn-btn";
+    if (data.mode === m) btn.className += (m === "off" ? " active-off" : " active");
+  });
+
+  if (data.signal) updateSignal(data.signal);
+
+  var tbody = document.getElementById("check-body");
+  if (data.checks && data.checks.length > 0) {
+    tbody.innerHTML = '';
+    data.checks.forEach(function(c) {
+      var tr = document.createElement('tr');
+      var cls = c.ok ? 'check-ok' : 'check-fail';
+      tr.innerHTML = '<td>' + c.name + '</td><td class="' + cls + '">' + c.ip + '</td><td>' + (c.geo || '\u2014') + '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+}
+
+function setButtons(enabled) {
+  ["wg","ovpn","off"].forEach(function(m) {
+    document.getElementById("btn-" + m).disabled = !enabled;
+  });
+}
+
+function vpnStatus() {
+  document.getElementById("btn-refresh").disabled = true;
+  document.getElementById("current-ip").textContent = "checking...";
+  XHR.get(statusUrl, null, function(x, data) {
+    updateUI(data);
+    document.getElementById("btn-refresh").disabled = false;
+  });
+}
+
+function refreshSignal() {
+  XHR.get(signalUrl, null, function(x, data) { updateSignal(data); });
+}
+
+function vpnSwitch(mode) {
+  var spinner = document.getElementById("vpn-spinner");
+  spinner.style.display = "block";
+  spinner.textContent = "Switching to " + modeLabels[mode] + "...";
+  setButtons(false);
+
+  XHR.get(switchUrl, {mode: mode}, function(x, data) {
+    spinner.style.display = "none";
+    setButtons(true);
+    if (data) updateUI(data);
+    setTimeout(vpnStatus, 5000);
+  });
+}
+
+vpnStatus();
+setInterval(refreshSignal, 10000);
+setInterval(vpnStatus, 60000);
+</script>
+
+<%+footer%>

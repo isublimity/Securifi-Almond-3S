@@ -59,15 +59,32 @@ build_userspace() {
         -o "$OUT_DIR/pic_test" "$MODULES_DIR/pic_test.c"
     echo ">>> $OUT_DIR/pic_test"
 
-    ls -la "$OUT_DIR/lcd_render" "$OUT_DIR/pic_test"
+    zig cc -target mipsel-linux-musleabi -O2 -static \
+        -o "$OUT_DIR/lcd_touch_read" "$MODULES_DIR/lcd_touch_read.c"
+    echo ">>> $OUT_DIR/lcd_touch_read"
+
+    ls -la "$OUT_DIR/lcd_render" "$OUT_DIR/pic_test" "$OUT_DIR/lcd_touch_read"
 }
 
 deploy() {
     echo "=== Deploying to $ROUTER ==="
     scp -O "$OUT_DIR/lcd_drv.ko" "$OUT_DIR/lcd_render" "$OUT_DIR/pic_test" \
-        "$ROUTER:/tmp/"
-    echo ">>> Files uploaded to /tmp/"
-    ssh "$ROUTER" "ls -la /tmp/lcd_drv.ko /tmp/lcd_render /tmp/pic_test"
+        "$OUT_DIR/lcd_touch_read" "$ROUTER:/tmp/"
+    echo ">>> Binaries uploaded"
+
+    # Deploy LCD scripts and UI
+    ssh "$ROUTER" "mkdir -p /etc/lcd_scripts"
+    scp -O "$SCRIPT_DIR/lcd_scripts/"*.lua "$ROUTER:/etc/lcd_scripts/"
+    scp -O "$MODULES_DIR/lcd_ui.lua" "$ROUTER:/tmp/"
+    echo ">>> Scripts uploaded"
+
+    # Deploy LuCI vpnswitch
+    scp -O "$SCRIPT_DIR/luci-vpnswitch/vpnswitch.lua" "$ROUTER:/usr/lib/lua/luci/controller/"
+    scp -O "$SCRIPT_DIR/luci-vpnswitch/vpnswitch.htm" "$ROUTER:/usr/lib/lua/luci/view/"
+    ssh "$ROUTER" "rm -rf /tmp/luci-*"
+    echo ">>> LuCI vpnswitch deployed"
+
+    ssh "$ROUTER" "ls -la /tmp/lcd_drv.ko /tmp/lcd_render /tmp/lcd_touch_read /tmp/lcd_ui.lua"
 }
 
 deploy_run() {
