@@ -21,6 +21,7 @@
 #include <linux/i2c.h>
 
 #include "splash_4pda.h"
+#include "pic_calib.h"
 
 #define DEVICE_NAME  "lcd"
 #define LCD_W        320
@@ -668,11 +669,87 @@ static int __init lcd_drv_init(void)
     /* SX8650 touchscreen init */
     sx8650_hw_init();
 
-    /* PIC16 battery: disabled at boot.
-     * i2c_get_adapter() and i2c_transfer() reconfigure SM0 registers
-     * which breaks palmbus-based touch reads.
-     * PIC will be initialized on-demand via ioctl. */
-    pr_info("lcd_drv: PIC battery disabled (no i2c_get_adapter at boot)\n");
+    /* PIC16 battery: send calibration tables via palmbus I2C */
+    {
+        int ci;
+        pr_info("lcd_drv: PIC calibration sending...\n");
+
+        /* Table 1: cmd=0x03 + 400 bytes */
+        gw(SM0_CTL1, 0x90644042); udelay(10);
+        gw(SM0_DATA, PIC_ADDR);
+        for (ci = 0; ci < 401; ci++) {
+            gw(SM0_DATAOUT, pic_calib1[ci]);
+            gw(SM0_STATUS, 0);
+            udelay(150);
+            gw(SM0_START, 0);
+            udelay(150);
+        }
+        gw(SM0_STATUS, 2); udelay(150);
+        gw(SM0_START, 0); udelay(150);
+        gw(SM0_CTL1, 0x8064800E); udelay(10);
+        mdelay(100);
+
+        /* Table 2: cmd=0x2E + 400 bytes */
+        gw(SM0_CTL1, 0x90644042); udelay(10);
+        gw(SM0_DATA, PIC_ADDR);
+        for (ci = 0; ci < 401; ci++) {
+            gw(SM0_DATAOUT, pic_calib2[ci]);
+            gw(SM0_STATUS, 0);
+            udelay(150);
+            gw(SM0_START, 0);
+            udelay(150);
+        }
+        gw(SM0_STATUS, 2); udelay(150);
+        gw(SM0_START, 0); udelay(150);
+        gw(SM0_CTL1, 0x8064800E); udelay(10);
+        mdelay(100);
+
+        pr_info("lcd_drv: PIC calibration sent (2 x 401 bytes)\n");
+
+        /* Read battery to verify */
+        mdelay(1000);
+        {
+            u8 buf[17] = {0};
+            u8 wake[3] = { 0x2F, 0x00, 0x02 };
+            /* Send battery read command via palmbus */
+            gw(SM0_CTL1, 0x90644042); udelay(10);
+            gw(SM0_DATA, PIC_ADDR);
+            for (ci = 0; ci < 3; ci++) {
+                gw(SM0_DATAOUT, wake[ci]);
+                gw(SM0_STATUS, 0);
+                udelay(150);
+                gw(SM0_START, 0);
+                udelay(150);
+            }
+            gw(SM0_STATUS, 2); udelay(150);
+            gw(SM0_START, 0); udelay(150);
+            gw(SM0_CTL1, 0x8064800E); udelay(10);
+            mdelay(200);
+
+            /* Read response */
+            gw(SM0_CTL1, 0x90644042); udelay(10);
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 0); udelay(10);
+            gw(SM0_DATAOUT, (PIC_ADDR << 1) | 1);
+            gw(SM0_STATUS, 2); udelay(150);
+            gw(SM0_CFG, 0xFA);
+            gw(SM0_START, 0); udelay(10);
+            gw(SM0_START, 1); gw(SM0_START, 1); udelay(10);
+            gw(SM0_STATUS, 1); udelay(150);
+            for (ci = 0; ci < 17; ci++) {
+                buf[ci] = gr(SM0_DATAIN) & 0xFF;
+                udelay(150);
+            }
+            gw(SM0_START, 0); udelay(10);
+            gw(SM0_START, 1);
+            gw(SM0_CTL1, 0x8064800E); udelay(10);
+
+            pr_info("lcd_drv: PIC battery: %02x %02x %02x %02x %02x %02x %02x\n",
+                    buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6]);
+            memcpy(pic_battery_raw, buf, 17);
+            pic_battery_valid = (buf[0] != 0xAA);
+        }
+    }
 
     /* Start render thread */
     render_thread = kthread_run(render_fn, NULL, "lcd_render");
