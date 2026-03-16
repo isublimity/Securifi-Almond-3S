@@ -64,7 +64,7 @@ rm -rf /tmp/luci-*
 echo "  OK: http://<router>/cgi-bin/luci/admin/services/vpnswitch"
 
 # === 5. LTE скрипты ===
-echo "[5/6] LTE скрипты..."
+echo "[5/7] LTE скрипты..."
 wget -qO /etc/init.d/lte-watchdog "$REPO/scripts/lte-watchdog.sh"
 wget -qO /tmp/lte-band-test.sh "$REPO/scripts/lte-band-test.sh"
 wget -qO /tmp/sms.sh "$REPO/scripts/sms.sh"
@@ -72,10 +72,18 @@ chmod +x /etc/init.d/lte-watchdog /tmp/lte-band-test.sh /tmp/sms.sh
 /etc/init.d/lte-watchdog enable 2>/dev/null || true
 echo "  OK: lte-watchdog, lte-band-test, sms"
 
-# === 6. Запуск LCD стека ===
-echo "[6/6] Запуск LCD..."
+# === 6. LCD init service ===
+echo "[6/7] LCD init service..."
+wget -qO /etc/init.d/lcd-init "$REPO/scripts/lcd-init.sh"
+chmod +x /etc/init.d/lcd-init
+/etc/init.d/lcd-init enable 2>/dev/null || true
+echo "  OK: lcd-init (autostart at boot)"
+
+# === 7. Запуск LCD стека ===
+echo "[7/7] Запуск LCD..."
 killall lcd_render lua 2>/dev/null || true
 sleep 1
+rmmod i2c_mt7621 2>/dev/null || true
 /tmp/lcd_render &
 sleep 1
 lua /tmp/lcd_ui.lua > /tmp/lcd_ui.log 2>&1 &

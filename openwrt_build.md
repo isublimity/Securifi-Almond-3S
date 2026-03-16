@@ -140,13 +140,19 @@ cd Securifi-Almond-3S
 | `CONFIG_PACKAGE_kmod-usb-serial-option=y` | AT-порт модема (/dev/ttyUSB*) |
 | `CONFIG_PACKAGE_uqmi=y` | Утилита управления QMI |
 
-### I2C (для PIC battery — когда понадобится)
+### WiFi MT7615
 
 | Пакет | Зачем |
 |-------|-------|
-| `CONFIG_PACKAGE_kmod-i2c-core=y` | Ядро I2C подсистемы |
-| `CONFIG_PACKAGE_kmod-i2c-mt7621=y` | MT7621 I2C контроллер |
-| `CONFIG_PACKAGE_i2c-tools=y` | Утилиты отладки I2C |
+| `CONFIG_PACKAGE_kmod-mt7615e=y` | WiFi драйвер MT7615 (2.4 + 5 GHz) |
+| `CONFIG_PACKAGE_kmod-mt7615-firmware=y` | Firmware для MT7615 |
+
+### LCD UI зависимости
+
+| Пакет | Зачем |
+|-------|-------|
+| `CONFIG_PACKAGE_socat=y` | Unix socket клиент для lcd_render |
+| `CONFIG_PACKAGE_lua=y` | Lua 5.1 для lcd_ui.lua |
 
 **ВНИМАНИЕ**: `kmod-i2c-mt7621` конфликтует с тачскрином! Модуль захватывает SM0 контроллер и блокирует palmbus доступ. Решение: `rmmod i2c_mt7621` перед загрузкой lcd_drv.ko, или не включать в автозагрузку.
 

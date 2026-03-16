@@ -452,25 +452,44 @@ local function handle_vpn_touch(tx,ty)
     end; return false
 end
 
+local function collect_modem_bg()
+    -- Read bg results (non-blocking)
+    local r
+    r=read_file("/tmp/.lcd_imei"); local imei=r:match("(%d%d%d%d%d%d%d+)")
+    if imei then cache.modem_imei=imei end
+    r=read_file("/tmp/.lcd_fw"); local fw=r:match("(EC%S+)")
+    if fw then cache.modem_fw=fw end
+    r=read_file("/tmp/.lcd_iccid"); local iccid=r:match("QCCID:%s*(%S+)")
+    if iccid then cache.modem_iccid=iccid end
+    -- USSD balance
+    r=read_file("/tmp/.lcd_ussd")
+    local hex=r:match('+CUSD:%s*%d+,"(%x+)"')
+    if hex then
+        local d=""; for i=1,#hex,4 do local cp=tonumber(hex:sub(i,i+3),16)
+            if cp and cp<128 then d=d..string.char(cp) end
+        end
+        cache.balance=(d:match("(%d+%.?%d*)") or "?").." rub"
+    end
+end
+
 local function draw_modem_page()
+    collect_modem_bg()  -- read whatever is ready
     lcd_clear(C_BG); draw_header("Modem Info"); local y=24
-    lcd_text(4,y,"EC21-E "..cache.modem_fw,C_WHITE,C_BG,1); y=y+12
-    lcd_text(4,y,"IMEI:"..cache.modem_imei,C_GRAY,C_BG,1); y=y+12
-    lcd_text(4,y,"ICCID:"..cache.modem_iccid,C_GRAY,C_BG,1); y=y+16
+    local fw_txt = cache.modem_fw~="" and cache.modem_fw or "loading..."
+    lcd_text(4,y,"EC21-E "..fw_txt, cache.modem_fw~="" and C_WHITE or C_GRAY, C_BG,1); y=y+12
+    lcd_text(4,y,"IMEI: "..(cache.modem_imei~="" and cache.modem_imei or "..."),C_GRAY,C_BG,1); y=y+12
+    lcd_text(4,y,"ICCID: "..(cache.modem_iccid~="" and cache.modem_iccid or "..."),C_GRAY,C_BG,1); y=y+16
     lcd_text(4,y,string.format("RSRP:%d SINR:%.0f Band:%s",cache.rsrp,cache.sinr,cache.band),C_GREEN,C_BG,1); y=y+12
     local tc=cache.modem_temp>=60 and C_RED or (cache.modem_temp>=45 and C_YELLOW or C_GREEN)
     lcd_text(4,y,"Temp:"..cache.modem_temp.."C",tc,C_BG,1); y=y+16
-    lcd_text(4,y,"Balance: "..cache.balance,C_YELLOW,C_BG,2); y=y+22
-    lcd_rect(4,y,120,20,"#0841"); lcd_text(8,y+2,"Check Bal",C_YELLOW,"#0841",2)
+    lcd_text(4,y,"Balance: "..(cache.balance~="" and cache.balance or "loading..."),
+        cache.balance~="" and C_YELLOW or C_GRAY, C_BG,2)
     draw_back(); lcd_flush()
 end
 
 local function handle_modem_touch(tx,ty)
     if is_back_touch(ty) then page="main"; draw_main(); return true end
-    if ty>=130 and ty<=150 and tx<130 then
-        lcd_clear(C_BG); draw_header("USSD *102#..."); lcd_text(40,100,"...",C_YELLOW,C_BG,2); lcd_flush()
-        collect_balance(); draw_modem_page(); return true
-    end; return false
+    return false
 end
 
 local function draw_sms_page()
@@ -523,8 +542,13 @@ local function handle_main_touch(tx,ty)
             else
                 if i==1 then page="band"; draw_band_page(); return true
                 elseif i==2 then
-                    collect_modem_info(); collect_balance()
-                    page="modem"; draw_modem_page(); return true
+                    page="modem"; draw_modem_page()
+                    -- Load info in background, redraw when ready
+                    os.execute("(echo -e 'AT+GSN\\r';sleep 1)|socat -T2 -t2 STDIO /dev/ttyUSB2,crnl,nonblock>/tmp/.lcd_imei 2>/dev/null &")
+                    os.execute("(echo -e 'AT+QGMR\\r';sleep 1)|socat -T2 -t2 STDIO /dev/ttyUSB2,crnl,nonblock>/tmp/.lcd_fw 2>/dev/null &")
+                    os.execute("(echo -e 'AT+QCCID\\r';sleep 1)|socat -T2 -t2 STDIO /dev/ttyUSB2,crnl,nonblock>/tmp/.lcd_iccid 2>/dev/null &")
+                    os.execute("(echo -e 'AT+CUSD=1,\"*102#\",15\\r';sleep 5)|socat -T7 -t7 STDIO /dev/ttyUSB2,crnl,nonblock>/tmp/.lcd_ussd 2>/dev/null &")
+                    return true
                 elseif i==3 then collect_sms(); page="sms"; draw_sms_page(); return true
                 end
             end
@@ -577,6 +601,7 @@ local function main()
             if now-last_bg>=3 then kick_bg_collect(); kick_ip_bg(); last_bg=now end
             collect_cached()
             if page=="main" then if now-last_draw>=5 then draw_main(); last_draw=now end
+            elseif page=="modem" then if now-last_draw>=2 then draw_modem_page(); last_draw=now end
             elseif page=="signal" or page=="traffic" then if now-last_draw>=1 then
                 if page=="signal" then draw_signal_page() else draw_traffic_page() end; last_draw=now
             end end
