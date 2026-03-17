@@ -1,49 +1,142 @@
-# lcd_render — Userspace Display Renderer
+# LCD Display Stack — mmap Architecture (A+C)
 
 ## Overview
 
-`lcd_render` is a userspace C program that provides a high-level drawing API for the ILI9341 display. It renders text, shapes, and images into the kernel framebuffer (`/dev/lcd`) and accepts commands via a Unix socket using JSON protocol.
+The display stack uses a direct mmap architecture. Lua scripts access the framebuffer and hardware through `lcdlib.so` — a Lua C module that mmaps `/dev/lcd` directly. No intermediate processes or unix sockets are needed.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│  Applications (Go, Python, shell, LuCI)     │
-│  Send JSON commands via unix socket          │
-└──────────────┬──────────────────────────────┘
-               │ /tmp/lcd.sock (unix stream)
-┌──────────────▼──────────────────────────────┐
-│  lcd_render (C, userspace)                   │
-│  - JSON parser                               │
-│  - 5×7 font renderer                         │
-│  - Rectangle/fill operations                 │
-│  - Local framebuffer (320×240 RGB565)        │
-└──────────────┬──────────────────────────────┘
-               │ write() to /dev/lcd
-┌──────────────▼──────────────────────────────┐
-│  lcd_drv.ko (kernel module)                  │
-│  - Framebuffer 153600 bytes                  │
-│  - Render thread (10 fps)                    │
-│  - GPIO bit-bang to ILI9341                  │
-│  - Touch polling (SX8650)                    │
-└─────────────────────────────────────────────┘
++---------------------------------------------+
+|  Lua scripts (lcd_ui.lua, status.lua, etc.)  |
+|  require("lcdlib") -- direct C calls         |
++------------------+--------------------------+
+                   | lcdlib.so (Lua C module)
+                   | mmap /dev/lcd framebuffer
+                   | ioctl for touch, backlight
++------------------+--------------------------+
+|  lcd_drv.ko (kernel module)                  |
+|  - Framebuffer 153600 bytes (mmap)           |
+|  - fps=0: manual flush only                  |
+|  - GPIO bit-bang to ILI9341                  |
+|  - Touch polling (SX8650 via palmbus I2C)    |
+|  - SM0 save/restore for I2C coexistence      |
++----------------------------------------------+
 ```
 
-## Running
+## Components
+
+| Component | Type | Description |
+|-----------|------|-------------|
+| lcd_drv.ko | kernel module | Framebuffer, GPIO bit-bang, touch, backlight, mmap support, fps=0 |
+| lcdlib.so | Lua C module | mmap framebuffer + rect/text/line/clear/flush/touch/backlight |
+| lcd_ui.lua | Lua script | UI: buttons, graphs, screensaver, state machine |
+
+## lcdlib.so API
+
+```lua
+local lcd = require("lcdlib")
+
+-- Drawing
+lcd.clear(color)                    -- fill screen
+lcd.rect(x, y, w, h, color)        -- filled rectangle
+lcd.text(x, y, str, color, bg, scale) -- text with 5x7 font
+lcd.line(x1, y1, x2, y2, color)    -- line
+lcd.flush()                         -- push framebuffer to display
+
+-- Hardware
+local x, y, pressed = lcd.touch()  -- read touch coordinates
+lcd.backlight(0|1)                  -- backlight on/off
+lcd.splash()                        -- show built-in splash bitmap
+lcd.usleep(us)                      -- microsecond delay
+```
+
+## lcd_drv.ko Interface
+
+### /dev/lcd
+
+- **mmap**: 153600 bytes, RGB565, 320x240. Userspace writes pixels directly
+- **write()**: alternative to mmap — write full/partial framebuffer
+- **ioctl(0)**: flush framebuffer to display
+- **ioctl(1, int[3])**: read touch {x, y, pressed}
+- **ioctl(2, u8[17])**: read PIC battery (blocked without calibration)
+- **ioctl(3, u8[17])**: raw PIC read
+- **ioctl(4, 0)**: backlight OFF
+- **ioctl(4, 1)**: backlight ON
+- **ioctl(4, 2)**: show splash bitmap
+
+### fps=0 Mode
+
+The kernel render thread is disabled (fps=0). Display updates happen only on explicit flush (ioctl 0). This saves CPU and gives full control to userspace.
+
+## Building
 
 ```bash
-# Start lcd_render in background
-/tmp/lcd_render &
+# lcdlib.so — cross-compile on Mac
+zig cc -target mipsel-linux-musleabi -O2 -shared -o lcdlib.so lcdlib.c
 
-# It will:
-# 1. Open /dev/lcd
-# 2. Draw splash screen ("by sublimity / For OpenWRT")
-# 3. Listen on /tmp/lcd.sock for JSON commands
+# Deploy to router
+scp -O lcdlib.so root@192.168.11.1:/usr/lib/lua/
+
+# Run UI
+ssh root@192.168.11.1 "lua /usr/share/lcd/lcd_ui.lua &"
 ```
 
-## JSON Protocol
+## Color Format
 
-### Socket Connection
+Colors can be specified as:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| Name | `"red"` | Predefined: red, green, blue, white, black, yellow, cyan |
+| Hex RGB | `"#FF0000"` | Full RGB888, converted to RGB565 |
+| Raw RGB565 | `0xF800` | Direct 16-bit value |
+
+## Font
+
+Built-in 5x7 pixel bitmap font covering ASCII 32-126. Each character is 5 pixels wide, 7 pixels tall, with 1 pixel spacing.
+
+| Scale | Char size | Chars per line | Lines |
+|-------|-----------|---------------|-------|
+| 1 | 6x8 px | 53 | 30 |
+| 2 | 12x16 px | 26 | 15 |
+| 3 | 18x24 px | 17 | 10 |
+
+## Screensaver / Burn-in Protection
+
+lcd_ui.lua implements a state machine:
+
+```
+active (UI)  --30 sec-->  screensaver (splash)  --30 sec-->  off (backlight off)
+     ^                         |                                     |
+     |                         v                                     v
+     +--------  touch  --------+----------  touch  ------------------+
+```
+
+## Performance
+
+| Operation | Time | Note |
+|-----------|------|------|
+| Full screen fill | ~1.5s | 153600 bytes via GPIO bit-bang |
+| Text line (scale 2) | ~50ms | Depends on length |
+| Framebuffer mmap write | <0.1ms | Direct memory access |
+| Touch poll | 50ms | Kernel thread interval |
+| Flush (ioctl 0) | ~1.5s | Full frame GPIO transfer |
+
+---
+
+## Legacy: lcd_render (JSON socket protocol)
+
+`lcd_render` is the old userspace renderer that accepts JSON commands via unix socket. It still works for compatibility but is no longer the recommended approach.
+
+### Running (legacy)
+
+```bash
+/tmp/lcd_render &
+# Listens on /tmp/lcd.sock
+```
+
+### JSON Commands (legacy)
 
 ```bash
 # From shell
@@ -55,200 +148,14 @@ s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 s.connect("/tmp/lcd.sock")
 s.send(b'{"cmd":"text","x":10,"y":10,"text":"Hello","color":"white","size":2}\n')
 s.close()
-
-# From Go
-conn, _ := net.Dial("unix", "/tmp/lcd.sock")
-conn.Write([]byte(`{"cmd":"rect","x":0,"y":0,"w":320,"h":30,"color":"#0000FF"}`))
-conn.Close()
 ```
 
-### Commands
+#### Commands
 
-#### clear — Fill entire screen
-
-```json
-{"cmd": "clear", "color": "#000000"}
-{"cmd": "clear", "color": "black"}
-```
-
-#### text — Draw text
-
-```json
-{
-  "cmd": "text",
-  "x": 10,
-  "y": 20,
-  "text": "Hello World",
-  "color": "#FFFFFF",
-  "bg": "#000000",
-  "size": 2
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| x | int | yes | X position (0-319) |
-| y | int | yes | Y position (0-239) |
-| text | string | yes | Text to render. Supports `\n` for newline |
-| color | string | no | Text color (default: white) |
-| bg | string | no | Background color (default: black) |
-| size | int | no | Scale factor 1-5 (default: 1). Character size = 5×7 × scale |
-
-#### rect — Draw filled rectangle
-
-```json
-{
-  "cmd": "rect",
-  "x": 0,
-  "y": 0,
-  "w": 320,
-  "h": 30,
-  "color": "#001F"
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| x, y | int | Top-left corner |
-| w, h | int | Width and height |
-| color | string | Fill color |
-
-#### flush — Force display update
-
-```json
-{"cmd": "flush"}
-```
-
-Normally, every draw command triggers an automatic flush. Use this after a batch of commands if auto-flush is disabled.
-
-#### fps — Set refresh rate
-
-```json
-{"cmd": "fps", "value": 15}
-```
-
-Set to 0 for manual-only flush (better for batch operations).
-
-### Color Format
-
-Colors can be specified as:
-
-| Format | Example | Description |
-|--------|---------|-------------|
-| Name | `"red"` | Predefined: red, green, blue, white, black, yellow, cyan |
-| Hex RGB | `"#FF0000"` | Full RGB888, converted to RGB565 |
-| Raw RGB565 | `"0xF800"` | Direct 16-bit value |
-
-## One-Shot Mode
-
-For simple operations without the socket server:
-
-```bash
-# Pass JSON as command line argument
-/tmp/lcd_render '{"cmd":"clear","color":"blue"}'
-/tmp/lcd_render '{"cmd":"text","x":10,"y":10,"text":"Status OK","color":"green","size":3}'
-```
-
-## Font
-
-Built-in 5×7 pixel bitmap font covering ASCII 32-126. Each character is 5 pixels wide, 7 pixels tall, with 1 pixel spacing.
-
-At different scales:
-| Scale | Char size | Chars per line | Lines |
-|-------|-----------|---------------|-------|
-| 1 | 6×8 px | 53 | 30 |
-| 2 | 12×16 px | 26 | 15 |
-| 3 | 18×24 px | 17 | 10 |
-
-## Example: Status Dashboard
-
-```bash
-#!/bin/sh
-SOCK="/tmp/lcd.sock"
-send() { echo "$1" | nc -U $SOCK -q0 2>/dev/null; }
-
-# Header
-send '{"cmd":"rect","x":0,"y":0,"w":320,"h":24,"color":"#001F"}'
-send '{"cmd":"text","x":10,"y":4,"text":"Almond 3S","color":"white","bg":"#001F","size":2}'
-
-# IP Address
-IP=$(ip -4 addr show br-lan | grep inet | awk '{print $2}')
-send "{\"cmd\":\"text\",\"x\":10,\"y\":40,\"text\":\"IP: $IP\",\"color\":\"#07E0\",\"size\":2}"
-
-# Signal
-CSQ=$(echo -e "AT+CSQ\r" > /dev/ttyUSB2; sleep 1; cat /dev/ttyUSB2 | grep CSQ | cut -d: -f2 | cut -d, -f1)
-send "{\"cmd\":\"text\",\"x\":10,\"y\":70,\"text\":\"Signal: $CSQ\",\"color\":\"yellow\",\"size\":2}"
-
-# Uptime
-UP=$(uptime | awk -F'up ' '{print $2}' | awk -F, '{print $1}')
-send "{\"cmd\":\"text\",\"x\":10,\"y\":100,\"text\":\"Up: $UP\",\"color\":\"white\",\"size\":2}"
-```
-
-## Example: Touch-Reactive UI
-
-```bash
-#!/bin/sh
-# Read touch via ioctl from lcd_drv
-# ioctl cmd=1 returns {x, y, pressed}
-
-while true; do
-    TOUCH=$(cat /proc/lcd_touch 2>/dev/null)  # future interface
-    if [ "$TOUCH" = "pressed" ]; then
-        send '{"cmd":"clear","color":"red"}'
-    else
-        send '{"cmd":"clear","color":"black"}'
-    fi
-    sleep 0.1
-done
-```
-
-## Touch Integration
-
-Touch data is available through the same `/dev/lcd` device:
-
-```c
-#include <sys/ioctl.h>
-#include <fcntl.h>
-
-int fd = open("/dev/lcd", O_RDWR);
-int touch[3];  // {x, y, pressed}
-
-// Poll touch
-while (1) {
-    ioctl(fd, 1, touch);
-    if (touch[2]) {  // pressed
-        printf("Touch at %d, %d\n", touch[0], touch[1]);
-        // Draw marker at touch position
-        char cmd[256];
-        snprintf(cmd, sizeof(cmd),
-            "{\"cmd\":\"rect\",\"x\":%d,\"y\":%d,\"w\":10,\"h\":10,\"color\":\"red\"}",
-            touch[0]-5, touch[1]-5);
-        // send to lcd_render...
-    }
-    usleep(50000);
-}
-```
-
-## Building
-
-```bash
-# Cross-compile with zig
-zig cc -target mipsel-linux-musleabi -O2 -static -o lcd_render lcd_render.c
-
-# Copy to router
-scp -O lcd_render root@192.168.11.1:/tmp/
-
-# Run
-ssh root@192.168.11.1 "/tmp/lcd_render &"
-```
-
-## Performance
-
-| Operation | Time | Note |
-|-----------|------|------|
-| Full screen fill | ~1.5s | 153600 bytes via GPIO bit-bang |
-| Text line (scale 2) | ~50ms | Depends on length |
-| Framebuffer write | ~1ms | Kernel buffer copy |
-| Touch poll | 50ms | Kernel thread interval |
-
-The GPIO bit-bang is the bottleneck. Full screen refresh at 10 fps uses ~15% of one CPU core.
+| Command | Fields | Description |
+|---------|--------|-------------|
+| clear | color | Fill entire screen |
+| text | x, y, text, color, bg, size | Draw text (5x7 font, scale 1-5) |
+| rect | x, y, w, h, color | Filled rectangle |
+| flush | — | Force display update |
+| fps | value | Set refresh rate (0=manual) |

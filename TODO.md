@@ -6,7 +6,7 @@
 
 PIC16LF1509 на I2C addr 0x2A отдаёт тестовый паттерн `AA 54 A8 50 A0 40 80` (сдвиг бита) — дефолтный буфер до получения калибровки. Register-style reads игнорируются — PIC всегда отдаёт тот же буфер. Без 800 байт runtime-калибровки от стокового ядра батарея НЕ читается.
 
-### Что установлено (реверс IDA Pro)
+### Что установлено (реверс прошивки)
 
 - **I2C протокол PIC (palmbus direct)**:
   - Write: SM0_DATA=0x2A, SM0_START=len, SM0_DATAOUT=cmd, SM0_STATUS=0, poll bit 1, delay 15ms
@@ -70,9 +70,9 @@ PIC16LF1509 на I2C addr 0x2A отдаёт тестовый паттерн `AA 
 
 ## lcd_drv.ko — Автозагрузка
 
-- [ ] Заменить lcd_gpio.ko на lcd_drv.ko в сборке прошивки
-- [ ] Проверить что модуль грузится при старте
-- [ ] Добавить lcd_render в /etc/init.d/
+- [x] Заменить lcd_gpio.ko на lcd_drv.ko в сборке прошивки (kmod-lcd-gpio в DEVICE_PACKAGES)
+- [x] Проверить что модуль грузится при старте (AUTOLOAD в package Makefile)
+- [x] lcd_render заменён на mmap-архитектуру: lcdlib.so + Lua скрипты напрямую
 
 ## Дисплей — UI
 
@@ -90,7 +90,7 @@ PIC16LF1509 на I2C addr 0x2A отдаёт тестовый паттерн `AA 
 - sysfs GPIO (0, 1, 2, 29, 30) — звука нет
 - PIC I2C команды (0x10-0xF0 одиночные) — PIC NACKает через Linux I2C
 - PIC multi-byte команды ({0x33,xx,xx}, {0x34,xx,xx}, {0x2E,xx,xx}, {0x2F,xx,xx}) — FAIL через /dev/i2c-0
-- IDA реверс: модуль `almond_remind` + `almond_remind_handler` найден в строках ядра, но код не привязан к функциям (stripped)
+- Реверс прошивки: модуль `almond_remind` + `almond_remind_handler` найден в строках ядра, но код не привязан к функциям (stripped)
 - Нет аудиофайлов в стоковой прошивке
 - Нет PWM контроллера в DTS
 

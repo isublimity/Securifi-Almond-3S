@@ -30,9 +30,13 @@ uci set wireless.radio0.disabled='0'
 
 ## Проблема 2: LAN порты NO-CARRIER
 
+> **РЕШЕНО в commit b9f592b.** Причина была в lcd_drv.ko: GPIOMODE overwrite (бит 12 = MDIO->GPIO) убивал MT7530 MDIO link. Также DIR full overwrite сбрасывал конфигурацию не-LCD пинов. Исправлено: pinctrl через DTS + маскированные DIR записи в lcd_drv.ko.
+>
+> **НИКОГДА не отключать i2c в DTS!** `&i2c { status = "disabled"; }` ломает MT7530 Ethernet switch (LAN carrier=0 на ВСЕХ портах, IRQ #23 nobody cared). MT7530 использует I2C шину для внутренней коммуникации PHY.
+
 **Симптом**: Все 3 LAN порта показывают `NO-CARRIER` при подключённом кабеле. USB-LAN адаптер подключён к Mac.
 
-**Причина**: Возможно MT7530 switch не инициализирован правильно, или IRQ #23 ошибка (`mt7530_irq_thread_fn — nobody cared`) сломала Ethernet switch.
+**Причина**: lcd_drv.ko перезаписывал GPIOMODE целиком значением 0x95A8, бит 12 которого переключает MDIO (GPIO 20-21) в GPIO mode. MT7530 switch теряет MDIO связь с SoC. Дополнительно, полная перезапись DIR регистра сбрасывала конфигурацию всех не-LCD пинов.
 
 **Лог**:
 ```
@@ -40,9 +44,11 @@ uci set wireless.radio0.disabled='0'
 [  387.931971] Disabling IRQ #23
 ```
 
-**Fix**: Проверить DTS — правильно ли назначены порты MT7530. Попробовать `irqpoll` в kernel cmdline. Проверить физическое подключение — какой порт LAN, какой WAN.
+**Fix (реализовано)**: Убран `gw(GPIOMODE_OFF, 0x95A8)` из lcd_drv.ko — pinctrl в DTS обрабатывает pinmux. Все записи DIR через маску LCD_PIN_MASK.
 
 ## Проблема 3: i2c-mt7621 загружается автоматически
+
+> **РЕШЕНО.** Конфликт i2c-mt7621 с тачскрином решён через SM0 save/restore в lcd_drv.ko. i2c-mt7621 ДОЛЖЕН быть загружен — без него MT7530 LAN не работает.
 
 **Симптом**: Модуль `i2c-mt7621` загружается при старте, блокирует palmbus I2C для тачскрина.
 
@@ -53,22 +59,12 @@ uci set wireless.radio0.disabled='0'
 [    2.683785] i2c-mt7621 1e000900.i2c: clock 100 kHz
 ```
 
-**Fix варианты**:
-1. Добавить `i2c-mt7621` в blacklist: `/etc/modules.d/blacklist-i2c`
-2. В lcd-init.sh делать `rmmod i2c_mt7621` (уже реализовано)
-3. Убрать/отключить i2c ноду в DTS для Almond 3S (правильный fix)
+**Fix (реализовано)**: lcd_drv.ko сохраняет регистры SM0 перед каждой palmbus I2C операцией (touch read) и восстанавливает после. Оба модуля работают параллельно.
 
-**Fix в прошивке**:
-```bash
-# Добавить в uci-defaults или в files/:
-echo "blacklist i2c_mt7621" > /etc/modprobe.d/blacklist-i2c.conf
-```
-
-Или создать файл в сборке:
-`target/linux/ramips/mt7621/base-files/etc/modprobe.d/blacklist-i2c.conf`:
-```
-blacklist i2c_mt7621
-```
+~~**НЕВЕРНЫЕ варианты** (НЕ ПРИМЕНЯТЬ):~~
+- ~~Blacklist i2c-mt7621~~ — ломает MT7530 LAN (carrier=0)
+- ~~`rmmod i2c_mt7621`~~ — ломает MT7530 LAN (carrier=0)
+- ~~Отключить i2c в DTS~~ — ломает MT7530 LAN (IRQ #23 nobody cared)
 
 ## Проблема 4: LCD splash показывается на 1.5 сек, потом чёрный
 
@@ -104,11 +100,11 @@ uci set wireless.radio0.disabled='0'
 
 ## Сводка: что исправить в следующей сборке
 
-| # | Что | Где | Приоритет |
-|---|-----|-----|-----------|
-| 1 | `wifi config` перед настройкой wireless | uci-defaults | **КРИТИЧНО** |
-| 2 | Убрать `case board_name` из uci-defaults | uci-defaults | **КРИТИЧНО** |
-| 3 | Blacklist i2c-mt7621 | modprobe.d или DTS | Высокий |
-| 4 | LCD стек в прошивку (lcd_render, lcd_ui, lcdlib) | Пакет или files/ | Высокий |
-| 5 | Проверить LAN порты / MT7530 IRQ | DTS / kernel config | Средний |
-| 6 | Проверить factory EEPROM для WiFi | Бэкап / MTD3 | Средний |
+| # | Что | Где | Приоритет | Статус |
+|---|-----|-----|-----------|--------|
+| 1 | `wifi config` перед настройкой wireless | uci-defaults | **КРИТИЧНО** | Исправлено |
+| 2 | Убрать `case board_name` из uci-defaults | uci-defaults | **КРИТИЧНО** | Исправлено |
+| 3 | ~~Blacklist i2c-mt7621~~ | ~~modprobe.d или DTS~~ | ~~Высокий~~ | **НЕВЕРНО** — i2c нужен для LAN. Конфликт решён SM0 save/restore |
+| 4 | LCD стек в прошивку (lcdlib, lcd_ui) | Пакет или files/ | Высокий | В работе |
+| 5 | LAN порты / MT7530 IRQ | DTS / lcd_drv.ko | Средний | **РЕШЕНО** (commit b9f592b) |
+| 6 | Проверить factory EEPROM для WiFi | Бэкап / MTD3 | Средний | OK |

@@ -13,8 +13,8 @@ Running OpenWrt on Securifi Almond 3S with full hardware support: ILI9341 LCD di
 | WiFi 5GHz | MT7615 | PCIe | Working |
 | LAN | 3× Gigabit (MT7530) | RGMII | Working |
 | USB | 1× USB-A 2.0 | xHCI | Working |
-| Display | 2.8" IPS 240×320, ILI9341 controller | 8-bit parallel 8080-II via GPIO | **Working** |
-| Touchscreen | SX8650 resistive 4-wire | I2C bus 0, addr 0x48 | **Working (X+Y)** |
+| Display | 2.8" IPS 240x320, ILI9341 controller | 8-bit parallel 8080-II via GPIO | **Working** (lcd_drv.ko + lcdlib.so mmap) |
+| Touchscreen | SX8650 resistive 4-wire | I2C bus 0, addr 0x48 | **Working** (palmbus I2C + SM0 save/restore, coexists with LAN) |
 | LTE Modem | Quectel EC21-E (Cat1) | miniPCIe / USB | Working |
 | Battery | 2S Li-Ion, BQ24133 charger | Analog (no digital interface) | Charging works |
 | Power MCU | PIC16LF1509 | I2C bus 0, addr 0x2A | WIP |
@@ -106,9 +106,9 @@ AT+QCFG="band",0,44 # Lock to Band 3+7
 ### Prerequisites
 
 - OpenWrt build system
-- Branch: `almond-3s` (based on `openwrt-24.10`, kernel 6.6.x)
+- Branch: `almond-3s` (based on `openwrt-24.10`, kernel 6.12.74)
 
-**Note**: Kernel 6.6.x is tested and stable. Kernel 6.12.x (OpenWrt 25.12) may work with a different U-Boot (e.g. [DragonBluep](https://github.com/DragonBluep/uboot-mt7621)) but has not been verified by us.
+**Note**: Kernel 6.12.74 is tested and stable.
 
 ### Quick Build
 
@@ -166,15 +166,17 @@ ILI9341 display driver with framebuffer support.
 
 Low-level GPIO mmap helper. Creates `/dev/lcd_gpio` for userspace direct register access.
 
-## Architecture
+## Architecture (mmap A+C)
 
 ```
-lcd_drv.ko (kernel)     — GPIO bit-bang, ILI9341 init, framebuffer, touch polling
-    ↕ /dev/lcd (write framebuffer, ioctl for touch)
-lcd_render (C, userspace) — text/shapes rendering, JSON commands
-    ↕ unix socket /tmp/lcd.sock
-Applications (Go/shell)   — monitoring, UI logic
+lcd_ui.lua (Lua)         — UI logic, buttons, screensaver, state machine
+    ↕ require("lcdlib")
+lcdlib.so (Lua C module) — mmap framebuffer, rect/text/line/clear/flush/touch
+    ↕ mmap /dev/lcd + ioctl
+lcd_drv.ko (kernel)      — GPIO bit-bang, ILI9341, framebuffer (mmap), touch, fps=0
 ```
+
+No intermediate processes or unix sockets needed. Lua scripts access the framebuffer directly through lcdlib.so.
 
 ## Known Issues
 
@@ -201,11 +203,11 @@ echo 8 > "/proc/irq/32/smp_affinity"   # WiFi 5GHz → Core2t2
 
 - [LCD.md](LCD.md) — Display driver deep dive: ILI9341 init, GPIO bit-bang, framebuffer
 - [TOUCH.md](TOUCH.md) — Touchscreen driver: SX8650 protocol, calibration, coordinates
-- [LCD_RENDER.md](LCD_RENDER.md) — Userspace renderer: JSON protocol, unix socket API, examples
+- [LCD_RENDER.md](LCD_RENDER.md) — Display stack: mmap architecture (lcdlib.so), legacy JSON protocol
 
 ## Credits
 
-- Display and touch reverse engineering from original firmware (kernel 3.10.14)
+- Display and touch protocol reverse engineered from original firmware (kernel 3.10.14)
 - U-Boot by [a43/fildunsky](https://github.com/fildunsky/openwrt)
 - Community support from [4PDA forum](https://4pda.to/)
 - OpenWrt project

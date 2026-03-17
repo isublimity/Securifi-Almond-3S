@@ -62,15 +62,9 @@ SX8650 отвечает через Linux I2C (i2c_transfer/I2C_RDWR):
 Текущий lcd_drv.ko использует palmbus direct для touch (SM0_CTL1=0x90644042).
 Это конфликтует с i2c-mt7621 (SM0_CTL1=0x8064800E).
 
-### Следующий шаг: перевести touch на Linux I2C
-```c
-// Вместо palmbus direct:
-struct i2c_msg msgs[2] = {
-    { .addr = 0x48, .flags = 0, .len = 1, .buf = &cmd_select_x },
-    { .addr = 0x48, .flags = I2C_M_RD, .len = 2, .buf = xy_data },
-};
-i2c_transfer(adapter, msgs, 2);
-```
+### Статус: palmbus I2C + SM0 save/restore (РАБОТАЕТ)
+
+Linux I2C (i2c_transfer) для тачскрина возвращает 0xFF — не работает. Оставлен palmbus direct доступ к SM0 с сохранением/восстановлением регистров SM0 до и после каждой touch-операции. Это позволяет i2c-mt7621 и palmbus direct сосуществовать. Touch + LAN работают одновременно.
 
 ## PIC16 Battery
 

@@ -58,7 +58,7 @@ static u8 *framebuffer;        /* kernel buffer */
 static struct page **fb_pages; /* pages for mmap */
 static int fb_npages;
 static struct task_struct *render_thread;
-static int target_fps = 10;
+static int target_fps = 0;  /* manual flush only — userspace controls refresh */
 static int fb_dirty = 1;
 
 /* === GPIO bit-bang (exact U-Boot replica) === */
@@ -627,11 +627,28 @@ static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 }
 
 
+/* mmap: map framebuffer to userspace (zero-copy rendering) */
+static int lcd_mmap(struct file *f, struct vm_area_struct *vma)
+{
+    unsigned long size = vma->vm_end - vma->vm_start;
+    int i;
+
+    if (size > fb_npages * PAGE_SIZE)
+        return -EINVAL;
+
+    for (i = 0; i < fb_npages && i * PAGE_SIZE < size; i++) {
+        if (vm_insert_page(vma, vma->vm_start + i * PAGE_SIZE, fb_pages[i]))
+            return -EAGAIN;
+    }
+    return 0;
+}
+
 static const struct file_operations lcd_fops = {
     .owner          = THIS_MODULE,
     .write          = lcd_fb_write,
     .llseek         = default_llseek,
     .unlocked_ioctl = lcd_ioctl,
+    .mmap           = lcd_mmap,
 };
 
 static struct miscdevice lcd_dev = {
