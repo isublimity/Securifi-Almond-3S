@@ -296,10 +296,18 @@ static ssize_t lcd_fb_write(struct file *f, const char __user *buf,
     return cnt;
 }
 
-/* === SX8650 Touchscreen via direct I2C palmbus === */
+/* === SX8650 Touchscreen via palmbus I2C (SM0 direct) === */
+/*
+ * SX8650 requires SM0_CTL1=0x90644042 (raw master mode) for touch reads.
+ * Linux I2C (SM0_CTL1=0x8064800E) returns FF for SELECT(X/Y) commands.
+ * We save/restore SM0_CTL1 around each palmbus access to coexist with
+ * the Linux i2c-mt7621 driver.
+ */
 
+#define SX8650_ADDR  0x48
+
+/* SM0 I2C controller registers */
 #define SM0_CFG     0x900
-#define SM0_CLKDIV  0x904
 #define SM0_DATA    0x908
 #define SM0_DATAOUT 0x910
 #define SM0_DATAIN  0x914
@@ -310,14 +318,16 @@ static ssize_t lcd_fb_write(struct file *f, const char __user *buf,
 static int touch_x, touch_y;
 static int touch_pressed;
 static struct task_struct *touch_thread;
+static struct i2c_adapter *touch_i2c_adap;
 
-/* === PIC16 Battery via palmbus I2C === */
+/* === PIC16 Battery via Linux I2C === */
 #define PIC_ADDR  0x2A
-#define PIC_BATTERY_LEN  17  /* max bytes to read from PIC */
+#define PIC_BATTERY_LEN  17
 
 static u8 pic_battery_raw[PIC_BATTERY_LEN];
 static int pic_battery_valid;
 
+/* Palmbus I2C raw helpers */
 static void i2c_raw_write(u8 val)
 {
     gw(SM0_DATAOUT, val);
@@ -329,14 +339,14 @@ static void i2c_raw_write(u8 val)
 
 static void i2c_raw_start(void)
 {
-    gw(SM0_DATA, 0x48);   /* SX8650 addr */
+    gw(SM0_DATA, SX8650_ADDR);
     gw(SM0_START, 0);
     udelay(150);
 }
 
 static void i2c_raw_stop(void)
 {
-    gw(SM0_STATUS, 2);    /* NACK */
+    gw(SM0_STATUS, 2);
     udelay(150);
     gw(SM0_START, 0);
     udelay(150);
@@ -344,29 +354,29 @@ static void i2c_raw_stop(void)
 
 static void sx8650_hw_init(void)
 {
-    /* I2C controller init (from original kernel) */
-    u32 rst = gr(0x034);
-    rst |= 0x10000;  gw(0x034, rst);
-    rst &= ~0x10000; gw(0x034, rst);
-    udelay(500);
+    u32 saved_ctl1 = gr(SM0_CTL1);
 
+    /* Get I2C adapter for PIC battery (Linux I2C) */
+    touch_i2c_adap = i2c_get_adapter(0);
+    if (!touch_i2c_adap)
+        pr_warn("lcd_drv: cannot get I2C adapter 0 (PIC battery won't work)\n");
+
+    /* SX8650 init via palmbus (needs SM0_CTL1=0x90644042) */
     gw(SM0_CTL1, 0x90644042);
-    gw(0x928, 1);  /* SM0_D0 enable */
-
-    /* Оригинальные регистры из заводской прошивки + CONVERT(SEQ) */
+    gw(0x928, 1);
 
     /* 1. Soft Reset */
     i2c_raw_start(); i2c_raw_write(0x1F); i2c_raw_write(0xDE); i2c_raw_stop();
     mdelay(50);
 
-    /* 2. Регистры из оригинального ядра 3.10.14 */
+    /* 2. Registers from stock firmware */
     i2c_raw_start(); i2c_raw_write(0x00); i2c_raw_write(0x00); i2c_raw_stop(); udelay(150);
     i2c_raw_start(); i2c_raw_write(0x01); i2c_raw_write(0x27); i2c_raw_stop(); udelay(150);
     i2c_raw_start(); i2c_raw_write(0x02); i2c_raw_write(0x00); i2c_raw_stop(); udelay(150);
     i2c_raw_start(); i2c_raw_write(0x03); i2c_raw_write(0x2D); i2c_raw_stop(); udelay(150);
     i2c_raw_start(); i2c_raw_write(0x04); i2c_raw_write(0xC0); i2c_raw_stop(); udelay(150);
 
-    /* 3. PenTrg mode (0x80 потом 0x90 как в оригинале) */
+    /* 3. PenTrg mode */
     i2c_raw_start();
     gw(SM0_DATAOUT, 0x80); gw(SM0_STATUS, 2); udelay(150);
     gw(SM0_START, 0); udelay(150);
@@ -375,62 +385,27 @@ static void sx8650_hw_init(void)
 
     gw(SM0_CFG, 0xFA);
 
-    /* GPIO 0 = input (NIRQ) — update base_dir, not LCD shadow */
-    base_dir = gr(GPIO_DIR_OFF) & ~LCD_PIN_MASK;
-    base_dir &= ~1;  /* GPIO 0 = input */
-    gw_dir(shadow_dir);
+    /* Restore SM0_CTL1 for Linux I2C driver */
+    gw(SM0_CTL1, saved_ctl1); udelay(10);
 
-    pr_info("lcd_drv: SX8650 init done (mainline-style v2)\n");
+    pr_info("lcd_drv: SX8650 init done (palmbus + SM0 save/restore)\n");
 }
 
 /*
- * I2C Read Channels (даташит Figure 26):
- * В Auto mode после NIRQ — просто I2C read.
- * Данные: X(hi,lo), Y(hi,lo) = 4 байта.
+ * Read touch X/Y via palmbus direct (SM0_CTL1 saved/restored).
  * Format: [0|CHAN(2:0)|D(11:8)] [D(7:0)]
  */
 static int sx8650_read_xy(int *rx, int *ry)
 {
     int raw_x = 0, raw_y = 0;
     u8 h, l;
+    u32 saved_ctl1 = gr(SM0_CTL1);
 
-    /*
-     * Читаем X: cmd 0x80 = SELECT(X), потом read 2 bytes
-     * Читаем Y: cmd 0x81 = SELECT(Y), потом read 2 bytes
-     * Между ними — полный I2C stop/start цикл
-     */
-
-    /* --- Read X: cmd 0x80 --- */
+    /* --- Read X: SELECT(X)=0x80 --- */
     gw(SM0_CTL1, 0x90644042); udelay(10);
-    gw(SM0_DATA, 0x48);
+    gw(SM0_DATA, SX8650_ADDR);
     gw(SM0_START, 0); udelay(10);
-    gw(SM0_DATAOUT, 0x80);  /* SELECT(X) */
-    gw(SM0_STATUS, 2); udelay(150);
-    gw(SM0_START, 0); udelay(10);
-    gw(SM0_DATAOUT, 0x91);  /* read addr */
-    gw(SM0_STATUS, 2); udelay(150);
-    gw(SM0_CFG, 0xFA);
-    gw(SM0_START, 0); udelay(10);
-    gw(SM0_START, 1); gw(SM0_START, 1); udelay(10);
-    gw(SM0_STATUS, 1); udelay(150);
-    h = gr(SM0_DATAIN) & 0xFF; udelay(150);
-    l = gr(SM0_DATAIN) & 0xFF; udelay(150);
-    gw(SM0_START, 0); udelay(10);
-    gw(SM0_START, 1);
-    gw(SM0_CTL1, 0x8064800E); udelay(10);
-
-    if (h != 0xFF) {
-        int ch = (h >> 4) & 7;
-        int val = ((h & 0x0F) << 8) | l;
-        if (ch == 0) raw_x = val;
-        if (ch == 1) raw_y = val;
-    }
-
-    /* --- Read Y: cmd 0x81 --- */
-    gw(SM0_CTL1, 0x90644042); udelay(10);
-    gw(SM0_DATA, 0x48);
-    gw(SM0_START, 0); udelay(10);
-    gw(SM0_DATAOUT, 0x81);  /* SELECT(Y) */
+    gw(SM0_DATAOUT, 0x80);
     gw(SM0_STATUS, 2); udelay(150);
     gw(SM0_START, 0); udelay(10);
     gw(SM0_DATAOUT, 0x91);
@@ -443,7 +418,34 @@ static int sx8650_read_xy(int *rx, int *ry)
     l = gr(SM0_DATAIN) & 0xFF; udelay(150);
     gw(SM0_START, 0); udelay(10);
     gw(SM0_START, 1);
-    gw(SM0_CTL1, 0x8064800E); udelay(10);
+
+    if (h != 0xFF) {
+        int ch = (h >> 4) & 7;
+        int val = ((h & 0x0F) << 8) | l;
+        if (ch == 0) raw_x = val;
+        if (ch == 1) raw_y = val;
+    }
+
+    /* --- Read Y: SELECT(Y)=0x81 --- */
+    gw(SM0_CTL1, 0x90644042); udelay(10);
+    gw(SM0_DATA, SX8650_ADDR);
+    gw(SM0_START, 0); udelay(10);
+    gw(SM0_DATAOUT, 0x81);
+    gw(SM0_STATUS, 2); udelay(150);
+    gw(SM0_START, 0); udelay(10);
+    gw(SM0_DATAOUT, 0x91);
+    gw(SM0_STATUS, 2); udelay(150);
+    gw(SM0_CFG, 0xFA);
+    gw(SM0_START, 0); udelay(10);
+    gw(SM0_START, 1); gw(SM0_START, 1); udelay(10);
+    gw(SM0_STATUS, 1); udelay(150);
+    h = gr(SM0_DATAIN) & 0xFF; udelay(150);
+    l = gr(SM0_DATAIN) & 0xFF; udelay(150);
+    gw(SM0_START, 0); udelay(10);
+    gw(SM0_START, 1);
+
+    /* Restore SM0_CTL1 for Linux I2C driver */
+    gw(SM0_CTL1, saved_ctl1); udelay(10);
 
     if (h != 0xFF) {
         int ch = (h >> 4) & 7;
@@ -453,7 +455,6 @@ static int sx8650_read_xy(int *rx, int *ry)
     }
 
     if (raw_x > 0 || raw_y > 0) {
-        /* Landscape mode (MADCTL=0xA8): axes swapped + both inverted */
         *rx = (raw_y > 0) ? (4096 - raw_y) * 320 / 4096 : 160;
         *ry = (raw_x > 0) ? raw_x * 240 / 4096 : 120;
         return 1;
@@ -462,8 +463,6 @@ static int sx8650_read_xy(int *rx, int *ry)
 }
 
 /* === PIC16 I2C via Linux I2C subsystem === */
-
-static struct i2c_adapter *pic_i2c_adap;
 
 static int pic_i2c_read(u8 *buf, int len)
 {
@@ -475,10 +474,10 @@ static int pic_i2c_read(u8 *buf, int len)
     };
     int ret;
 
-    if (!pic_i2c_adap)
+    if (!touch_i2c_adap)
         return -ENODEV;
 
-    ret = i2c_transfer(pic_i2c_adap, &msg, 1);
+    ret = i2c_transfer(touch_i2c_adap, &msg, 1);
     if (ret < 0)
         return ret;
     return (ret == 1) ? 0 : -EIO;
@@ -494,10 +493,10 @@ static int __maybe_unused pic_i2c_write(u8 *data, int len)
     };
     int ret;
 
-    if (!pic_i2c_adap)
+    if (!touch_i2c_adap)
         return -ENODEV;
 
-    ret = i2c_transfer(pic_i2c_adap, &msg, 1);
+    ret = i2c_transfer(touch_i2c_adap, &msg, 1);
     if (ret < 0)
         return ret;
     return (ret == 1) ? 0 : -EIO;
@@ -789,7 +788,7 @@ static void __exit lcd_drv_exit(void)
 {
     if (touch_thread) kthread_stop(touch_thread);
     if (render_thread) kthread_stop(render_thread);
-    if (pic_i2c_adap) i2c_put_adapter(pic_i2c_adap);
+    if (touch_i2c_adap) i2c_put_adapter(touch_i2c_adap);
     misc_deregister(&lcd_dev);
     vfree(framebuffer);
     kfree(fb_pages);
