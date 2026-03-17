@@ -47,8 +47,13 @@
 #define BIT_DCX (1u<<17)
 #define BIT_BL  (1u<<31)
 
+/* Mask of all LCD GPIO pins in bank0 — ONLY these may be touched */
+#define LCD_PIN_MASK (BIT_D0|BIT_D1|BIT_D2|BIT_D3|BIT_D4|BIT_D5|BIT_D6|BIT_D7| \
+                      BIT_WRX|BIT_RST|BIT_CSX|BIT_DCX|BIT_BL)
+
 static void __iomem *gpio_base;
 static u32 shadow_dir;
+static u32 base_dir;           /* non-LCD DIR bits, preserved across writes */
 static u8 *framebuffer;        /* kernel buffer */
 static struct page **fb_pages; /* pages for mmap */
 static int fb_npages;
@@ -61,6 +66,14 @@ static int fb_dirty = 1;
 static inline void gw(u32 off, u32 v) { __raw_writel(v, gpio_base + off); }
 static inline u32 gr(u32 off) { return __raw_readl(gpio_base + off); }
 
+/*
+ * Write GPIO DIR register preserving non-LCD pins.
+ * Only LCD_PIN_MASK bits come from lcd_bits, rest from base_dir.
+ */
+static inline void gw_dir(u32 lcd_bits) {
+    gw(GPIO_DIR_OFF, base_dir | (lcd_bits & LCD_PIN_MASK));
+}
+
 static void gpio_set_byte(u8 val)
 {
     if (val & 0x01) shadow_dir |= BIT_D0; else shadow_dir &= ~BIT_D0;
@@ -71,75 +84,75 @@ static void gpio_set_byte(u8 val)
     if (val & 0x20) shadow_dir |= BIT_D5; else shadow_dir &= ~BIT_D5;
     if (val & 0x40) shadow_dir |= BIT_D6; else shadow_dir &= ~BIT_D6;
     if (val & 0x80) shadow_dir |= BIT_D7; else shadow_dir &= ~BIT_D7;
-    gw(GPIO_DIR_OFF, shadow_dir);
+    gw_dir(shadow_dir);
 }
 
 static void lcd_cmd(u8 cmd)
 {
-    shadow_dir |= BIT_CSX;  gw(GPIO_DIR_OFF, shadow_dir);
-    shadow_dir |= BIT_WRX;  gw(GPIO_DIR_OFF, shadow_dir);
-    shadow_dir |= BIT_DCX;  gw(GPIO_DIR_OFF, shadow_dir);
-    shadow_dir &= ~BIT_WRX; gw(GPIO_DIR_OFF, shadow_dir);
-    shadow_dir &= ~BIT_CSX; gw(GPIO_DIR_OFF, shadow_dir);
+    shadow_dir |= BIT_CSX;  gw_dir(shadow_dir);
+    shadow_dir |= BIT_WRX;  gw_dir(shadow_dir);
+    shadow_dir |= BIT_DCX;  gw_dir(shadow_dir);
+    shadow_dir &= ~BIT_WRX; gw_dir(shadow_dir);
+    shadow_dir &= ~BIT_CSX; gw_dir(shadow_dir);
     gpio_set_byte(cmd);
     u32 a = shadow_dir & ~BIT_DCX;
     u32 b = a | BIT_DCX;
     u32 c = b | BIT_CSX;
-    gw(GPIO_DIR_OFF, a);
-    gw(GPIO_DIR_OFF, b);
-    gw(GPIO_DIR_OFF, c);
+    gw_dir(a);
+    gw_dir(b);
+    gw_dir(c);
     shadow_dir = c | BIT_WRX;
-    gw(GPIO_DIR_OFF, shadow_dir);
+    gw_dir(shadow_dir);
 }
 
 static void lcd_dat(u8 dat)
 {
-    shadow_dir |= BIT_WRX;  gw(GPIO_DIR_OFF, shadow_dir);
-    shadow_dir &= ~BIT_CSX; gw(GPIO_DIR_OFF, shadow_dir);
+    shadow_dir |= BIT_WRX;  gw_dir(shadow_dir);
+    shadow_dir &= ~BIT_CSX; gw_dir(shadow_dir);
     gpio_set_byte(dat);
     u32 a = shadow_dir & ~BIT_DCX;
-    gw(GPIO_DIR_OFF, a);
-    a |= BIT_DCX; gw(GPIO_DIR_OFF, a);
+    gw_dir(a);
+    a |= BIT_DCX; gw_dir(a);
     a |= BIT_CSX; shadow_dir = a;
-    gw(GPIO_DIR_OFF, shadow_dir);
+    gw_dir(shadow_dir);
 }
 
 static void lcd_write_16d(u16 val)
 {
     gpio_set_byte(val >> 8);
-    shadow_dir &= ~BIT_DCX; gw(GPIO_DIR_OFF, shadow_dir);
-    shadow_dir |= BIT_DCX;  gw(GPIO_DIR_OFF, shadow_dir);
+    shadow_dir &= ~BIT_DCX; gw_dir(shadow_dir);
+    shadow_dir |= BIT_DCX;  gw_dir(shadow_dir);
     gpio_set_byte(val & 0xFF);
-    shadow_dir &= ~BIT_DCX; gw(GPIO_DIR_OFF, shadow_dir);
-    shadow_dir |= BIT_DCX;  gw(GPIO_DIR_OFF, shadow_dir);
+    shadow_dir &= ~BIT_DCX; gw_dir(shadow_dir);
+    shadow_dir |= BIT_DCX;  gw_dir(shadow_dir);
 }
 
 static void lcd_write_mem(void)
 {
-    shadow_dir |= BIT_WRX; gw(GPIO_DIR_OFF, shadow_dir);
-    shadow_dir |= BIT_CSX; gw(GPIO_DIR_OFF, shadow_dir);
-    shadow_dir |= BIT_DCX; gw(GPIO_DIR_OFF, shadow_dir);
+    shadow_dir |= BIT_WRX; gw_dir(shadow_dir);
+    shadow_dir |= BIT_CSX; gw_dir(shadow_dir);
+    shadow_dir |= BIT_DCX; gw_dir(shadow_dir);
     gpio_set_byte(0x2C);
     shadow_dir &= ~BIT_WRX; shadow_dir &= ~BIT_CSX;
-    gw(GPIO_DIR_OFF, shadow_dir);
+    gw_dir(shadow_dir);
     u32 a = shadow_dir & ~BIT_DCX;
     u32 b = a | BIT_DCX;
-    gw(GPIO_DIR_OFF, shadow_dir);
-    gw(GPIO_DIR_OFF, a);
-    gw(GPIO_DIR_OFF, b);
+    gw_dir(shadow_dir);
+    gw_dir(a);
+    gw_dir(b);
     b |= BIT_WRX;
     u32 c = b | BIT_CSX;
-    gw(GPIO_DIR_OFF, b);
-    gw(GPIO_DIR_OFF, c);
+    gw_dir(b);
+    gw_dir(c);
     c &= ~BIT_CSX;
     shadow_dir = c;
-    gw(GPIO_DIR_OFF, shadow_dir);
+    gw_dir(shadow_dir);
 }
 
 static void lcd_cs_deselect(void)
 {
     shadow_dir |= BIT_CSX;
-    gw(GPIO_DIR_OFF, shadow_dir);
+    gw_dir(shadow_dir);
 }
 
 /* === LCD Hardware Init === */
@@ -147,8 +160,15 @@ static void lcd_cs_deselect(void)
 static void lcd_gpio_init(void)
 {
     u32 data;
-    gw(GPIOMODE_OFF, 0x95A8);
-    udelay(10);
+    /*
+     * GPIOMODE is now configured via DTS pinctrl (jtag/wdt/rgmii2 → gpio).
+     * DO NOT write GPIOMODE here — it would clobber MDIO and kill MT7530 LAN!
+     * Old value 0x95A8 had bit 12 set = MDIO→GPIO = LAN dead.
+     */
+
+    /* Save non-LCD DIR bits to preserve other GPIO settings */
+    base_dir = gr(GPIO_DIR_OFF) & ~LCD_PIN_MASK;
+
     data = gr(GPIO_DATA_OFF);
     data |= BIT_CSX; gw(GPIO_DATA_OFF, data);
     data |= BIT_RST; gw(GPIO_DATA_OFF, data);
@@ -169,13 +189,13 @@ static void lcd_gpio_init(void)
 static void lcd_hw_reset(void)
 {
     udelay(100000);
-    shadow_dir |= BIT_RST; gw(GPIO_DIR_OFF, shadow_dir); udelay(10000);
-    shadow_dir &= ~BIT_RST; gw(GPIO_DIR_OFF, shadow_dir); udelay(10000);
-    shadow_dir |= BIT_RST; gw(GPIO_DIR_OFF, shadow_dir); udelay(120000);
-    shadow_dir |= BIT_CSX; gw(GPIO_DIR_OFF, shadow_dir);
-    shadow_dir |= BIT_DCX; gw(GPIO_DIR_OFF, shadow_dir);
+    shadow_dir |= BIT_RST; gw_dir(shadow_dir); udelay(10000);
+    shadow_dir &= ~BIT_RST; gw_dir(shadow_dir); udelay(10000);
+    shadow_dir |= BIT_RST; gw_dir(shadow_dir); udelay(120000);
+    shadow_dir |= BIT_CSX; gw_dir(shadow_dir);
+    shadow_dir |= BIT_DCX; gw_dir(shadow_dir);
     udelay(5000);
-    shadow_dir &= ~BIT_CSX; gw(GPIO_DIR_OFF, shadow_dir);
+    shadow_dir &= ~BIT_CSX; gw_dir(shadow_dir);
 }
 
 static void lcd_init_ili9341(void)
@@ -216,6 +236,9 @@ static void lcd_flush_fb(void)
 {
     u16 *pixels = (u16 *)framebuffer;
     int i;
+
+    /* Refresh non-LCD DIR bits in case other drivers changed them */
+    base_dir = gr(GPIO_DIR_OFF) & ~LCD_PIN_MASK;
 
     lcd_cmd(0x2A); lcd_dat(0); lcd_dat(0); lcd_dat(1); lcd_dat(0x3F);
     lcd_cmd(0x2B); lcd_dat(0); lcd_dat(0); lcd_dat(0); lcd_dat(0xEF);
@@ -352,10 +375,10 @@ static void sx8650_hw_init(void)
 
     gw(SM0_CFG, 0xFA);
 
-    /* GPIO 0 = input (NIRQ) */
-    u32 dir = gr(GPIO_DIR_OFF);
-    dir &= ~1;
-    gw(GPIO_DIR_OFF, dir);
+    /* GPIO 0 = input (NIRQ) — update base_dir, not LCD shadow */
+    base_dir = gr(GPIO_DIR_OFF) & ~LCD_PIN_MASK;
+    base_dir &= ~1;  /* GPIO 0 = input */
+    gw_dir(shadow_dir);
 
     pr_info("lcd_drv: SX8650 init done (mainline-style v2)\n");
 }
@@ -598,7 +621,7 @@ static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
             shadow_dir |= BIT_BL;
         else
             shadow_dir &= ~BIT_BL;
-        gw(GPIO_DIR_OFF, shadow_dir);
+        gw_dir(shadow_dir);
         return 0;
     }
     return -ENOTTY;
@@ -647,7 +670,7 @@ static int __init lcd_drv_init(void)
     lcd_gpio_init();
     lcd_hw_reset();
     lcd_init_ili9341();
-    shadow_dir |= BIT_BL; gw(GPIO_DIR_OFF, shadow_dir);
+    shadow_dir |= BIT_BL; gw_dir(shadow_dir);
 
     /* Splash screen: 4PDA logo, 1 second */
     {
