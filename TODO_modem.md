@@ -3,13 +3,10 @@
 ## Текущий статус
 
 - **Модем**: Quectel EC21-E (Cat1, LTE-FDD, max 10/5 Mbps)
-- **SIM**: Билайн (MCC=250, MNC=99)
-- **APN**: internet.beeline.ru
 - **Интерфейс**: wwan0, QMI протокол, /dev/cdc-wdm0
 - **AT-порт**: /dev/ttyUSB2
-- **Сигнал**: RSRP -110 dBm, SNR -8 dB (слабый, 1-2 палки)
-- **Бенды LTE**: 0x800D5 = B1, B3, B5, B7, B8, B20
-- **IP**: 10.164.241.1 (серый, NAT)
+- **Бенды LTE**: B1, B3, B5, B7, B8, B20 (маска 0x800D5)
+- APN настраивается в UCI (`network.lte.apn`)
 
 ## 1. Оптимизация сигнала
 

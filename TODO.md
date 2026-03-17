@@ -68,12 +68,6 @@ PIC16LF1509 на I2C addr 0x2A отдаёт тестовый паттерн `AA 
 - [ ] Если не грузится — попробовать U-Boot от [DragonBluep](https://github.com/DragonBluep/uboot-mt7621) (**ОСТОРОЖНО**: нужен SPI программатор CH341A для восстановления!)
 - [ ] По данным ar2r2806 (4PDA): "25.12 нормально собирается и работает" с DragonBluep U-Boot
 
-## lcd_drv.ko — Автозагрузка
-
-- [x] Заменить lcd_gpio.ko на lcd_drv.ko в сборке прошивки (kmod-lcd-gpio в DEVICE_PACKAGES)
-- [x] Проверить что модуль грузится при старте (AUTOLOAD в package Makefile)
-- [x] lcd_render заменён на mmap-архитектуру: lcdlib.so + Lua скрипты напрямую
-
 ## Дисплей — UI
 
 - [ ] Статус-дашборд: IP, сигнал, uptime, батарея
@@ -115,12 +109,6 @@ PIC16LF1509 на I2C addr 0x2A отдаёт тестовый паттерн `AA 
 
 ## LTE модем
 
-- [x] Автоподключение при загрузке (QMI, Билайн)
-- [x] Отображение сигнала на дисплее (RSRP/SINR/Temp)
-- [x] Переключение бендов через UI
-- [x] LTE watchdog (автопереподключение)
-- [x] SMS чтение
-- [x] USSD баланс (*102#)
 - [ ] Автовыбор лучшего бенда (скрипт есть, UI кнопка есть)
 
 ## U-Boot — кастомная сборка
@@ -179,4 +167,4 @@ PIC16LF1509 на I2C addr 0x2A отдаёт тестовый паттерн `AA 
 
 1. **USB recovery**: в `board_late_init()` — проверка USB mass storage на файл `recover_aa.bin`, если есть — `mtd write` в firmware раздел
 2. **LCD дисплей**: порт GPIO bit-bang кода из lcd_drv.c в U-Boot — показ текста "Loading..." при старте
-3. **GPIOMODE = 0x95A8**: установка правильного GPIOMODE для LCD пинов
+3. **GPIOMODE**: установить LCD пины через pinctrl (jtag/wdt/rgmii2 → gpio). НЕ писать 0x95A8 целиком — бит 12 убивает MDIO/LAN!
