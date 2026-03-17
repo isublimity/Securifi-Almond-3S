@@ -15,6 +15,7 @@
 #include <linux/delay.h>
 #include <linux/uaccess.h>
 #include <linux/kthread.h>
+#include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
@@ -60,6 +61,7 @@ static int fb_npages;
 static struct task_struct *render_thread;
 static int target_fps = 0;  /* manual flush only — userspace controls refresh */
 static int fb_dirty = 1;
+static int splash_active = 1; /* demoscene animation until userspace takes over */
 
 /* === GPIO bit-bang (exact U-Boot replica) === */
 
@@ -244,29 +246,387 @@ static void lcd_flush_fb(void)
     lcd_cmd(0x2B); lcd_dat(0); lcd_dat(0); lcd_dat(0); lcd_dat(0xEF);
 
     lcd_write_mem();
-    for (i = 0; i < LCD_W * LCD_H; i++)
+    for (i = 0; i < LCD_W * LCD_H; i++) {
         lcd_write_16d(pixels[i]);
+        if ((i & 0x3FF) == 0) cond_resched(); /* yield every 1024 pixels */
+    }
     lcd_cs_deselect();
+}
+
+/* === Demoscene animated splash (plasma + palette cycling) === */
+
+/* Sine LUT: 256 entries, values 0-255 (fixed-point sin*127+128) */
+static const u8 sin_lut[256] = {
+    128,131,134,137,140,143,146,149,152,155,158,162,165,167,170,173,
+    176,179,182,185,188,190,193,196,198,201,203,206,208,211,213,215,
+    218,220,222,224,226,228,230,232,234,235,237,238,240,241,243,244,
+    245,246,248,249,250,250,251,252,253,253,254,254,254,255,255,255,
+    255,255,255,255,254,254,254,253,253,252,251,250,250,249,248,246,
+    245,244,243,241,240,238,237,235,234,232,230,228,226,224,222,220,
+    218,215,213,211,208,206,203,201,198,196,193,190,188,185,182,179,
+    176,173,170,167,165,162,158,155,152,149,146,143,140,137,134,131,
+    128,125,122,119,116,113,110,107,104,101,98,94,91,89,86,83,
+    80,77,74,71,68,66,63,60,58,55,53,50,48,45,43,41,
+    38,36,34,32,30,28,26,24,22,21,19,18,16,15,13,12,
+    11,10,8,7,6,6,5,4,3,3,2,2,2,1,1,1,
+    1,1,1,1,2,2,2,3,3,4,5,6,6,7,8,10,
+    11,12,13,15,16,18,19,21,22,24,26,28,30,32,34,36,
+    38,41,43,45,48,50,53,55,58,60,63,66,68,71,74,77,
+    80,83,86,89,91,94,98,101,104,107,110,113,116,119,122,125,
+};
+
+/* HSV-like palette: hue cycling through RGB565 */
+static u16 plasma_color(u8 val, u8 phase)
+{
+    u8 h = val + phase;  /* rotate hue */
+    u8 r, g, b;
+    u8 sector = h / 43;  /* 0-5 */
+    u8 frac = (h % 43) * 6;
+
+    switch (sector) {
+    case 0:  r = 255;     g = frac;     b = 0;       break;
+    case 1:  r = 255-frac; g = 255;     b = 0;       break;
+    case 2:  r = 0;       g = 255;      b = frac;    break;
+    case 3:  r = 0;       g = 255-frac; b = 255;     break;
+    case 4:  r = frac;    g = 0;        b = 255;     break;
+    default: r = 255;     g = 0;        b = 255-frac; break;
+    }
+    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+}
+
+/* === Scene 1: Plasma === */
+static void scene_plasma(int t)
+{
+    u16 *fb = (u16 *)framebuffer;
+    int x, y;
+    u8 phase = (u8)(t * 7);
+
+    for (y = 0; y < LCD_H; y++) {
+        for (x = 0; x < LCD_W; x++) {
+            u8 v = sin_lut[(x * 3 + t * 11) & 0xFF]
+                 + sin_lut[(y * 5 + t * 7) & 0xFF]
+                 + sin_lut[((x + y) * 2 + t * 3) & 0xFF]
+                 + sin_lut[((x * x + y * y) / 64 + t * 5) & 0xFF];
+            fb[y * LCD_W + x] = plasma_color(v, phase);
+        }
+    }
+}
+
+/* === Scene 2: Fire === */
+static void scene_fire(int t)
+{
+    u16 *fb = (u16 *)framebuffer;
+    int x, y;
+    /* Fire: propagate heat upward, random sparks at bottom */
+    /* Seed bottom row with random heat */
+    for (x = 0; x < LCD_W; x++) {
+        u8 spark = sin_lut[(x * 7 + t * 13) & 0xFF]
+                 + sin_lut[(x * 3 + t * 37) & 0xFF];
+        fb[(LCD_H - 1) * LCD_W + x] = spark > 200 ? 0xFFE0 : 0;
+    }
+    /* Propagate upward with cooling */
+    for (y = 0; y < LCD_H - 1; y++) {
+        for (x = 1; x < LCD_W - 1; x++) {
+            /* Average of 3 pixels below + decay */
+            u16 below = fb[(y + 1) * LCD_W + x - 1];
+            u16 belowc = fb[(y + 1) * LCD_W + x];
+            u16 belowr = fb[(y + 1) * LCD_W + x + 1];
+            /* Extract red channel as heat (top 5 bits of RGB565) */
+            int heat_val = ((below >> 11) + (belowc >> 11) * 2 + (belowr >> 11)) / 4;
+            if (heat_val > 0) heat_val--;
+            /* Heat to fire color: black→red→yellow→white */
+            u8 r, g, b;
+            if (heat_val > 24) { r = 31; g = 63; b = (heat_val - 24) * 4; }
+            else if (heat_val > 12) { r = 31; g = (heat_val - 12) * 5; b = 0; }
+            else { r = heat_val * 2; g = 0; b = 0; }
+            fb[y * LCD_W + x] = (r << 11) | (g << 5) | b;
+        }
+    }
+}
+
+/* === Scene 3: Starfield 3D === */
+#define NUM_STARS 200
+static struct { int x, y, z; } stars[NUM_STARS];
+static int stars_init;
+
+static void scene_starfield(int t)
+{
+    u16 *fb = (u16 *)framebuffer;
+    int i, sx, sy;
+
+    if (!stars_init) {
+        for (i = 0; i < NUM_STARS; i++) {
+            stars[i].x = (sin_lut[(i * 7) & 0xFF] - 128) * 16;
+            stars[i].y = (sin_lut[(i * 13 + 80) & 0xFF] - 128) * 12;
+            stars[i].z = (sin_lut[(i * 3 + 40) & 0xFF]) + 1;
+        }
+        stars_init = 1;
+    }
+
+    memset(fb, 0, FB_SIZE);
+
+    for (i = 0; i < NUM_STARS; i++) {
+        stars[i].z -= 3;
+        if (stars[i].z <= 0) {
+            stars[i].x = (sin_lut[(t * 3 + i * 7) & 0xFF] - 128) * 16;
+            stars[i].y = (sin_lut[(t * 5 + i * 13) & 0xFF] - 128) * 12;
+            stars[i].z = 255;
+        }
+        sx = stars[i].x * 128 / (stars[i].z + 1) + LCD_W / 2;
+        sy = stars[i].y * 128 / (stars[i].z + 1) + LCD_H / 2;
+        if ((unsigned)sx < LCD_W && (unsigned)sy < LCD_H) {
+            u8 bright = 255 - stars[i].z;
+            u16 c = ((bright >> 3) << 11) | ((bright >> 2) << 5) | (bright >> 3);
+            fb[sy * LCD_W + sx] = c;
+            /* Bigger stars are closer */
+            if (stars[i].z < 100 && sx + 1 < LCD_W)
+                fb[sy * LCD_W + sx + 1] = c;
+            if (stars[i].z < 50 && sy + 1 < LCD_H)
+                fb[(sy + 1) * LCD_W + sx] = c;
+        }
+    }
+}
+
+/* === Scene 4: Interference / Moire === */
+static void scene_interference(int t)
+{
+    u16 *fb = (u16 *)framebuffer;
+    int x, y;
+    /* Two moving center points */
+    int cx1 = 160 + sin_lut[(t * 5) & 0xFF] / 2 - 64;
+    int cy1 = 120 + sin_lut[(t * 7 + 64) & 0xFF] / 2 - 64;
+    int cx2 = 160 + sin_lut[(t * 3 + 128) & 0xFF] / 2 - 64;
+    int cy2 = 120 + sin_lut[(t * 4 + 192) & 0xFF] / 2 - 64;
+
+    for (y = 0; y < LCD_H; y++) {
+        for (x = 0; x < LCD_W; x++) {
+            int dx1 = x - cx1, dy1 = y - cy1;
+            int dx2 = x - cx2, dy2 = y - cy2;
+            /* isqrt approximation: use sum of abs as cheap distance */
+            int d1 = (dx1 * dx1 + dy1 * dy1) >> 5;
+            int d2 = (dx2 * dx2 + dy2 * dy2) >> 5;
+            u8 v = sin_lut[(d1 + t * 3) & 0xFF]
+                 + sin_lut[(d2 + t * 5) & 0xFF];
+            fb[y * LCD_W + x] = plasma_color(v, (u8)(t * 3));
+        }
+    }
+}
+
+/* === Scene 5: Rotozoom XOR === */
+static void scene_rotozoom(int t)
+{
+    u16 *fb = (u16 *)framebuffer;
+    int x, y;
+    int angle = t * 4;
+    int cosA = (int)sin_lut[(angle + 64) & 0xFF] - 128;
+    int sinA = (int)sin_lut[angle & 0xFF] - 128;
+    int zoom = sin_lut[(t * 3) & 0xFF] / 2 + 32;
+
+    for (y = 0; y < LCD_H; y++) {
+        for (x = 0; x < LCD_W; x++) {
+            int cx = x - LCD_W / 2, cy = y - LCD_H / 2;
+            int u = (cx * cosA - cy * sinA) / zoom + t * 2;
+            int v = (cx * sinA + cy * cosA) / zoom + t * 3;
+            u8 pattern = (u ^ v) & 0xFF;
+            fb[y * LCD_W + x] = plasma_color(pattern, (u8)(t * 5));
+        }
+    }
+}
+
+/* === Logo overlay (4PDA from splash RLE, transparent black) === */
+static void overlay_logo(void)
+{
+    u16 *fb = (u16 *)framebuffer;
+    int i, j = 0;
+    for (i = 0; i < SPLASH_RLE_LEN && j < LCD_W * LCD_H; i++) {
+        int k;
+        for (k = 0; k < splash_cnt[i] && j < LCD_W * LCD_H; k++, j++) {
+            if (splash_clr[i] != 0x0000)  /* non-black = logo pixel */
+                fb[j] = splash_clr[i];
+        }
+    }
+}
+
+/* === Scene 6: Dashboard Plasma — functional router visualization === */
+/*
+ * Each client has individual params:
+ *   traffic_kbps: wave amplitude / "pressure" (heavy user = deep distortion)
+ *   signal_dbm:   WiFi signal = distance from router (strong = close = center)
+ *
+ * Global: lte_rsrp = color palette, vpn_ms = pulsing rings
+ */
+#define MAX_DASH_CLIENTS 12
+
+static struct {
+    int num_clients;
+    int lte_rsrp;       /* dBm, 0=no LTE */
+    int vpn_ms;         /* -1=no tunnel */
+    struct {
+        int kbps;       /* traffic: amplitude of distortion */
+        int signal;     /* WiFi dBm: -30(close) to -90(far) */
+    } cl[MAX_DASH_CLIENTS];
+} dash_params = { .lte_rsrp = -100, .vpn_ms = -1 };
+
+/* LTE-based palette */
+static u16 dash_color(u8 val, int rsrp, u8 phase)
+{
+    u8 h = val + phase;
+    u8 r, g, b;
+
+    if (rsrp == 0) {
+        u8 gray = h >> 2;
+        return ((gray >> 3) << 11) | ((gray >> 2) << 5) | (gray >> 3);
+    }
+    if (rsrp > -80) {
+        r = h / 4; g = 128 + h / 2; b = 128 + h / 3;
+    } else if (rsrp > -95) {
+        r = h / 6; g = 64 + h / 2; b = 128 + h / 2;
+    } else if (rsrp > -105) {
+        r = 128 + h / 3; g = 96 + h / 4; b = h / 4;
+    } else {
+        r = 160 + h / 3; g = h / 4; b = h / 8;
+    }
+    return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
+}
+
+static void scene_dashboard(int t)
+{
+    u16 *fb = (u16 *)framebuffer;
+    int x, y, i;
+    int nc = dash_params.num_clients;
+    int rsrp = dash_params.lte_rsrp;
+    int vpn = dash_params.vpn_ms;
+
+    /* Total traffic for global animation speed */
+    int total_kbps = 0;
+    for (i = 0; i < nc && i < MAX_DASH_CLIENTS; i++)
+        total_kbps += dash_params.cl[i].kbps;
+    int gspeed = total_kbps / 200 + 1;  /* global time scale */
+    if (gspeed > 30) gspeed = 30;
+    int ts = t * gspeed;
+    u8 phase = (u8)(t * gspeed / 3);
+
+    /* Precompute client centers + amplitude */
+    int cx[MAX_DASH_CLIENTS], cy[MAX_DASH_CLIENTS], amp[MAX_DASH_CLIENTS], cspeed[MAX_DASH_CLIENTS];
+    for (i = 0; i < nc && i < MAX_DASH_CLIENTS; i++) {
+        /* Distance from center: signal -30=0px(center), -90=140px(edge) */
+        int radius = ((-dash_params.cl[i].signal) - 30) * 140 / 60;
+        if (radius < 0) radius = 0;
+        if (radius > 140) radius = 140;
+        /* Orbit angle: each client at different position, slowly drifting */
+        int angle_idx = (i * 256 / (nc + 1) + t * 2) & 0xFF;
+        cx[i] = 160 + ((int)sin_lut[angle_idx] - 128) * radius / 128;
+        cy[i] = 120 + ((int)sin_lut[(angle_idx + 64) & 0xFF] - 128) * radius / 128;
+        /* Amplitude: traffic → pressure (0..128) */
+        amp[i] = dash_params.cl[i].kbps / 100;
+        if (amp[i] > 128) amp[i] = 128;
+        if (amp[i] < 5) amp[i] = 5;
+        /* Individual speed: more traffic = faster local waves */
+        cspeed[i] = dash_params.cl[i].kbps / 500 + 1;
+        if (cspeed[i] > 20) cspeed[i] = 20;
+    }
+
+    for (y = 0; y < LCD_H; y++) {
+        for (x = 0; x < LCD_W; x++) {
+            /* Ambient base: gentle waves */
+            int v = sin_lut[(x * 2 + ts / 3) & 0xFF]
+                  + sin_lut[(y * 3 + ts / 4) & 0xFF];
+
+            /* Each client: wave source with individual pressure + speed */
+            for (i = 0; i < nc && i < MAX_DASH_CLIENTS; i++) {
+                int dx = x - cx[i], dy = y - cy[i];
+                int dist_sq = dx * dx + dy * dy;
+                int dist = dist_sq >> 5;
+                /* Wave from this client: freq based on distance, speed individual */
+                int wave = sin_lut[(dist + t * cspeed[i]) & 0xFF];
+                /* Pressure: amplitude falls off with distance (gravity well) */
+                int falloff = 256 - (dist_sq >> 8);
+                if (falloff < 0) falloff = 0;
+                v += (wave * amp[i] * falloff) >> 15;
+            }
+
+            /* VPN tunnel: concentric rings */
+            if (vpn >= 0) {
+                int dx = x - 160, dy = y - 120;
+                int dist = (dx * dx + dy * dy) >> 5;
+                int rspeed = vpn < 10 ? 20 : (vpn < 50 ? 10 : (vpn < 200 ? 5 : 2));
+                u8 ring = sin_lut[(dist - t * rspeed) & 0xFF];
+                if (ring > 200)
+                    v += (vpn < 50) ? 40 : 20;
+            }
+
+            /* Clamp */
+            if (v < 0) v = 0;
+            if (v > 255) v = 255;
+            fb[y * LCD_W + x] = dash_color((u8)v, rsrp, phase);
+        }
+    }
+}
+
+/* Logo overlay with alpha blending (95% background, 5% logo) */
+static void overlay_logo_alpha(void)
+{
+    u16 *fb = (u16 *)framebuffer;
+    int i, j = 0;
+    for (i = 0; i < SPLASH_RLE_LEN && j < LCD_W * LCD_H; i++) {
+        int k;
+        for (k = 0; k < splash_cnt[i] && j < LCD_W * LCD_H; k++, j++) {
+            u16 logo = splash_clr[i];
+            if (logo != 0x0000) {
+                u16 bg = fb[j];
+                /* 95%/5% blend in RGB565 */
+                int br = (bg >> 11) & 0x1F, bg2 = (bg >> 5) & 0x3F, bb = bg & 0x1F;
+                int lr = (logo >> 11) & 0x1F, lg = (logo >> 5) & 0x3F, lb = logo & 0x1F;
+                int r = (br * 19 + lr) / 20;
+                int g = (bg2 * 19 + lg) / 20;
+                int b = (bb * 19 + lb) / 20;
+                fb[j] = (r << 11) | (g << 5) | b;
+            }
+        }
+    }
+}
+
+/* Scene dispatch */
+#define NUM_SCENES 6
+static int current_scene = -1;  /* -1 = random at boot */
+
+static void render_scene(int scene, int t)
+{
+    switch (scene) {
+    case 0: scene_plasma(t); break;
+    case 1: scene_fire(t); break;
+    case 2: scene_starfield(t); break;
+    case 3: scene_interference(t); break;
+    case 4: scene_rotozoom(t); break;
+    case 5: scene_dashboard(t); break;
+    default: scene_plasma(t); break;
+    }
+    if (scene == 5)
+        overlay_logo_alpha();
+    else
+        overlay_logo();
 }
 
 /* Render thread */
 static int render_fn(void *data)
 {
+    int frame = 0;
+
+    /* Random scene at boot (based on jiffies) */
+    if (current_scene < 0)
+        current_scene = jiffies % NUM_SCENES;
+
     while (!kthread_should_stop()) {
-        if (target_fps > 0) {
-            if (fb_dirty) {
-                lcd_flush_fb();
-                fb_dirty = 0;
-            }
-            msleep(1000 / target_fps);
-            fb_dirty = 1; /* periodic refresh */
+        if (splash_active) {
+            render_scene(current_scene, frame++);
+            lcd_flush_fb();
+            msleep(100); /* breathe — let network/SSH work */
+            if (kthread_should_stop()) break;
+        } else if (fb_dirty) {
+            lcd_flush_fb();
+            fb_dirty = 0;
         } else {
-            /* manual mode: wait for flush command */
             msleep(50);
-            if (fb_dirty) {
-                lcd_flush_fb();
-                fb_dirty = 0;
-            }
         }
     }
     return 0;
@@ -280,7 +640,8 @@ static ssize_t lcd_fb_write(struct file *f, const char __user *buf,
 {
     loff_t pos = *p;
 
-    /* Если offset 0 и size = FB_SIZE — полный кадр */
+    splash_active = 0;  /* userspace took over — stop animation */
+
     if (pos >= FB_SIZE) return 0;
     if (pos + cnt > FB_SIZE) cnt = FB_SIZE - pos;
 
@@ -568,6 +929,7 @@ static int touch_fn(void *data)
 static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 {
     if (cmd == 0) {
+        splash_active = 0;  /* userspace flush — stop animation */
         fb_dirty = 1;
         return 0;
     }
@@ -621,6 +983,33 @@ static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
         else
             shadow_dir &= ~BIT_BL;
         gw_dir(shadow_dir);
+        return 0;
+    }
+    if (cmd == 5) {
+        /* Scene control: arg=0..5 select scene, arg=99 random, arg=100 stop */
+        if (arg == 100) {
+            splash_active = 0;
+        } else {
+            current_scene = (arg == 99) ? (jiffies % NUM_SCENES) : (arg % NUM_SCENES);
+            splash_active = 1;
+        }
+        return 0;
+    }
+    if (cmd == 6) {
+        /* Dashboard params: [nc, lte_rsrp, vpn_ms, kbps0, sig0, kbps1, sig1, ...] */
+        int p[3 + MAX_DASH_CLIENTS * 2];
+        int nc, i;
+        if (copy_from_user(p, (void __user *)arg, sizeof(p)))
+            return -EFAULT;
+        nc = p[0];
+        if (nc > MAX_DASH_CLIENTS) nc = MAX_DASH_CLIENTS;
+        dash_params.num_clients = nc;
+        dash_params.lte_rsrp = p[1];
+        dash_params.vpn_ms = p[2];
+        for (i = 0; i < nc; i++) {
+            dash_params.cl[i].kbps = p[3 + i * 2];
+            dash_params.cl[i].signal = p[3 + i * 2 + 1];
+        }
         return 0;
     }
     return -ENOTTY;
@@ -688,21 +1077,9 @@ static int __init lcd_drv_init(void)
     lcd_init_ili9341();
     shadow_dir |= BIT_BL; gw_dir(shadow_dir);
 
-    /* Splash screen: 4PDA logo, 1 second */
-    {
-        u16 *fb16 = (u16 *)framebuffer;
-        int i, j = 0;
-        for (i = 0; i < SPLASH_RLE_LEN && j < LCD_W * LCD_H; i++) {
-            int k;
-            for (k = 0; k < splash_cnt[i] && j < LCD_W * LCD_H; k++)
-                fb16[j++] = splash_clr[i];
-        }
-        lcd_flush_fb();
-        mdelay(1500);
-    }
-
-    /* Clear to black after splash */
-    memset(framebuffer, 0, FB_SIZE);
+    /* First scene frame + logo — render thread continues animation */
+    current_scene = jiffies % NUM_SCENES;
+    render_scene(current_scene, 0);
     lcd_flush_fb();
 
     /* SX8650 touchscreen init */

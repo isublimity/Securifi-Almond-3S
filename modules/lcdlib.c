@@ -326,6 +326,75 @@ static int l_line(lua_State *L)
     return 0;
 }
 
+/* lcd.scene("plasma"|"fire"|"stars"|"interference"|"rotozoom"|"random"|"off") */
+static int l_scene(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1);
+    int arg = 100; /* default: off */
+    if (strcmp(name, "plasma") == 0) arg = 0;
+    else if (strcmp(name, "fire") == 0) arg = 1;
+    else if (strcmp(name, "stars") == 0 || strcmp(name, "starfield") == 0) arg = 2;
+    else if (strcmp(name, "interference") == 0 || strcmp(name, "moire") == 0) arg = 3;
+    else if (strcmp(name, "rotozoom") == 0 || strcmp(name, "xor") == 0) arg = 4;
+    else if (strcmp(name, "random") == 0) arg = 99;
+    else if (strcmp(name, "off") == 0 || strcmp(name, "stop") == 0) arg = 100;
+    if (lcd_fd >= 0) ioctl(lcd_fd, 5, arg);
+    return 0;
+}
+
+/*
+ * lcd.dashboard({
+ *   lte = -85,          -- RSRP dBm (0=no LTE)
+ *   vpn = 45,           -- ms latency (-1=no tunnel)
+ *   clients = {
+ *     {kbps=15000, signal=-45},  -- close, heavy user
+ *     {kbps=500,   signal=-75},  -- far, light user
+ *   }
+ * })
+ */
+static int l_dashboard(lua_State *L)
+{
+    int p[3 + 12 * 2];  /* max 12 clients */
+    int nc = 0, i;
+
+    memset(p, 0, sizeof(p));
+    luaL_checktype(L, 1, LUA_TTABLE);
+
+    lua_getfield(L, 1, "lte");
+    p[1] = lua_isnil(L, -1) ? -100 : lua_tointeger(L, -1);
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "vpn");
+    p[2] = lua_isnil(L, -1) ? -1 : lua_tointeger(L, -1);
+    lua_pop(L, 1);
+
+    lua_getfield(L, 1, "clients");
+    if (lua_istable(L, -1)) {
+        nc = lua_objlen(L, -1);
+        if (nc > 12) nc = 12;
+        for (i = 1; i <= nc; i++) {
+            lua_rawgeti(L, -1, i);
+            if (lua_istable(L, -1)) {
+                lua_getfield(L, -1, "kbps");
+                p[3 + (i-1)*2] = lua_isnil(L, -1) ? 0 : lua_tointeger(L, -1);
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "signal");
+                p[3 + (i-1)*2 + 1] = lua_isnil(L, -1) ? -60 : lua_tointeger(L, -1);
+                lua_pop(L, 1);
+            }
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+
+    p[0] = nc;
+    if (lcd_fd >= 0) {
+        ioctl(lcd_fd, 6, p);
+        ioctl(lcd_fd, 5, 5);
+    }
+    return 0;
+}
+
 static const struct luaL_Reg lcdlib[] = {
     {"open",      l_open},
     {"close",     l_close},
@@ -339,6 +408,8 @@ static const struct luaL_Reg lcdlib[] = {
     {"pixel",     l_pixel},
     {"clear",     l_clear},
     {"line",      l_line},
+    {"scene",     l_scene},
+    {"dashboard", l_dashboard},
     {NULL, NULL}
 };
 
