@@ -1244,12 +1244,25 @@ static int __init lcd_drv_init(void)
             gw(NEW_CTL1, N_STOP | N_TRI);
             { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
 
-            pr_info("lcd_drv: PIC battery (palmbus): %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+            pr_info("lcd_drv: PIC raw [17]: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
                     bat_resp[0], bat_resp[1], bat_resp[2], bat_resp[3],
                     bat_resp[4], bat_resp[5], bat_resp[6], bat_resp[7],
-                    bat_resp[8], bat_resp[9], bat_resp[10]);
+                    bat_resp[8], bat_resp[9], bat_resp[10], bat_resp[11],
+                    bat_resp[12], bat_resp[13], bat_resp[14], bat_resp[15],
+                    bat_resp[16]);
+            {
+                /* Parse: try stock format interpretation */
+                int raw_adc = (bat_resp[0] << 8) | bat_resp[1];
+                int vref = bat_resp[2];
+                int c_pct = (signed char)bat_resp[6];
+                int f_pct = (signed char)bat_resp[7];
+                int batstat = bat_resp[10];
+                int batcount = bat_resp[11];
+                pr_info("lcd_drv: PIC parse: raw=%d(0x%03x) vref=%d C%%=%d F%%=%d BatStat=%d BatCnt=%d\n",
+                        raw_adc, raw_adc, vref, c_pct, f_pct, batstat, batcount);
+            }
             memcpy(pic_battery_raw, bat_resp, 17);
-            pic_battery_valid = (bat_resp[0] != 0xAA && bat_resp[0] != 0xFF);
+            pic_battery_valid = (bat_resp[0] != 0xAA && bat_resp[0] != 0xFF && bat_resp[0] != 0x55);
         }
     }
 
