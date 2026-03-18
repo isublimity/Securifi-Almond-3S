@@ -76,10 +76,29 @@ PIC returns fixed patterns depending on battery presence:
 | No battery | `AA 54 A8 50 A0 40 80 00...` | byte[1]=0x54 |
 
 - Values do NOT change during discharge (no ADC without calibration)
-- PIC detects battery presence at boot, caches the state
-- Calibration via Linux I2C is accepted (ACK) but not processed by PIC
-- Palmbus direct (SM0_CTL1=0x90644042) write works but read fails on kernel 6.12
-- SM0_CTL1 is locked by i2c-mt7621 driver — cannot switch to raw mode from userspace
+- PIC detects battery at **boot only** — hot-plug not detected
+- PIC responds ~50% of reads (clock stretching / alternating NACK)
+- After palmbus corruption: PIC returns `FF 00 00 00 F5` or `55 00 00 00 F5` (needs power cycle)
+
+### Calibration Status (kernel 6.12)
+
+| Method | Write | Read | Calibration effect |
+|--------|-------|------|-------------------|
+| Linux I2C (i2c_transfer) | ACK (repeated start only) | Works | NOT processed |
+| Linux I2C write-only | NACK | — | — |
+| Palmbus (SM0_CTL1=0x90644042) | 401 bytes sent | Poll timeout | NOT verified |
+| Palmbus from kernel module | Sends OK | ff ff ff ff | NOT working |
+
+Root cause: PIC expects specific I2C timing (clock stretching) that MT7621 i2c-mt7621 doesn't support. Stock kernel used raw SM0 mode with longer timeouts.
+
+### Solution: ICSP Firmware Dump
+
+PIC16LF1509 supports LVP (Low-Voltage Programming) via ICSP:
+- Connect 3 wires from free MT7621 GPIO to PIC ICSP pads
+- MCLR (PIC pin 4), PGD (pin 19), PGC (pin 18)
+- Entry key: "MCHP" (0x4D 0x43 0x48 0x50) MSB first on PGD/PGC
+- Dump 8192 words of PIC flash → disassemble → find I2C protocol
+- Tool: `modules/pic_icsp.c` (runs on router, GPIO bit-bang via /dev/mem)
 
 ## 17-Byte Response Format
 
