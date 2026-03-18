@@ -27,10 +27,10 @@ end
 
 -- === Drawing primitives (thin wrappers) ===
 function M.clear(c) lcd.clear(c or M.BLACK) end
-function M.rect(x, y, w, h, c) lcd.rect(x, y, w, h, c) end
-function M.text(x, y, s, c, scale) lcd.text(x, y, s, c or M.WHITE, scale or 1) end
-function M.pixel(x, y, c) lcd.pixel(x, y, c) end
-function M.line(x0, y0, x1, y1, c) lcd.line(x0, y0, x1, y1, c) end
+function M.rect(x, y, w, h, c) lcd.rect(math.floor(x), math.floor(y), math.floor(w), math.floor(h), math.floor(c)) end
+function M.text(x, y, s, c, scale) lcd.text(math.floor(x), math.floor(y), s, math.floor(c or M.WHITE), math.floor(scale or 1)) end
+function M.pixel(x, y, c) lcd.pixel(math.floor(x), math.floor(y), math.floor(c)) end
+function M.line(x0, y0, x1, y1, c) lcd.line(math.floor(x0), math.floor(y0), math.floor(x1), math.floor(y1), math.floor(c)) end
 function M.flush() lcd.flush() end
 
 -- === Touch ===

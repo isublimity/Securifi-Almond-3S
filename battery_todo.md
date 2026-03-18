@@ -101,16 +101,38 @@ PIC возвращает `55 00 00 00 39 3e 03 c6` — это НЕ формат 
 ### 3. Формат калибровочных таблиц
 Таблицы извлечены из RAM дампа стоковой прошивки через /dev/mem. Byte-swap подтверждён дизассемблером. Но значения могут быть device-specific (калибровка генерируется в runtime).
 
+## IDA Findings (2026-03-18)
+
+### PIC_BATTERY_MONITOR (0x413DCC)
+Мониторинг-тред. Вызывается после `{0x2F, 0x00, 0x01}`. Периодически:
+1. Вызывает PIC_IOCTL (sub_414468) → PIC_I2C_READ (sub_4080DC)
+2. Парсит через PIC_PARSE_BATTERY (sub_413CA0)
+3. printk "Read_Battery 0x%x vref 0x%x..."
+
+### PIC_PARSE_BATTERY (0x413CA0)
+1. Вызывает PIC_IOCTL + PIC_READ
+2. Проверяет byte_8 != 0xFF
+3. 4x вызов sub_407DD0 = **LOOKUP в калибровочных таблицах** (raw ADC → %)
+4. Пороги ADC: 0x191 (401), 0x21E (542)
+5. BatCount=0 → OK, BatCount!=0 → error
+
+### Kernel globals
+- 0x8159A6CC = BatCount
+- 0x8159A6D0 = BatStat
+- 0x8159A6D4 = LastVref
+- 0x8159A040 = saved config value
+- 0x8159A034 = count
+- 0x8159A044 = calib table 1 (400 bytes)
+- 0x8159A1D4 = calib table 2 (400 bytes)
+
 ## TODO
 
-- [ ] Попробовать read через СТАРЫЕ регистры (0x914) после инициализации SM0 в old mode
-- [ ] Увеличить паузу между battery write cmd и read (100ms → 1000ms)
-- [ ] Попробовать read БЕЗ предварительного write cmd {0x2F} (просто read after calib)
-- [ ] Проверить: SM0D0 после read содержит данные PIC или echo нашего write?
-- [ ] Дизассемблировать функцию Read_Battery (искать через xref к строке "Read_Battery")
-- [ ] Попробовать читать ioctl(2) через /dev/almond_pic на стоковой прошивке (загрузить сток через initramfs)
-- [ ] Дампнуть PIC firmware через ICSP (pic_icsp.c) и дизассемблировать I2C slave код
-- [ ] Проверить что BQ24133 charger подаёт напряжение на PIC ADC вход (мультиметром)
+- [x] Дизассемблировать Read_Battery — DONE (PIC_BATTERY_MONITOR 0x413DCC)
+- [ ] Декомпилировать sub_407DD0 (калибровочный lookup) — ключ к конвертации raw→%
+- [ ] Декомпилировать sub_4080DC (PIC_I2C_READ) — как именно читает PIC
+- [ ] Понять формат 8-байтного ответа через новые SM0 регистры
+- [ ] Реализовать lookup в lcd_drv.ko используя наши калибровочные таблицы
+- [ ] Дампнуть PIC firmware через ICSP (pic_icsp.c)
 
 ## Файлы
 
