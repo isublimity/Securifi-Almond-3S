@@ -1092,42 +1092,69 @@ static int __init lcd_drv_init(void)
      * then SM0_DATAOUT for each byte. NOT SM0_START=0 per byte!
      */
     {
-        int ci, poll_ok;
+        int ci;
         u32 saved_ctl1 = gr(SM0_CTL1);
         u32 saved_cfg = gr(SM0_CFG);
 
-        pr_info("lcd_drv: PIC calibration sending (stock protocol)...\n");
+        pr_info("lcd_drv: PIC calibration sending (stock protocol v2)...\n");
 
-        /* Table 1: cmd=0x03 + 400 bytes data */
-        gw(SM0_CTL1, 0x90644042); udelay(10);
-        gw(SM0_CFG, 0xFA);
-        gw(SM0_DATA, PIC_ADDR);
-        gw(SM0_START, 401);           /* TOTAL length, set ONCE */
-        gw(SM0_DATAOUT, pic_calib1[0]); /* first byte = cmd 0x03 */
-        gw(SM0_STATUS, 0);             /* write mode */
-        for (ci = 1; ci < 401; ci++) {
-            /* Poll 0x918 bit 1 (write ready) */
-            poll_ok = 0;
-            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) { poll_ok = 1; break; } udelay(10); } }
-            udelay(100);
-            gw(SM0_DATAOUT, pic_calib1[ci]);
-        }
-        /* Wait completion: poll bit 0 */
-        { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
-        mdelay(5);
+        /* Byte-swap helper: stock firmware swaps each int16 before sending.
+         * Our pic_calib.h has big-endian {0x00,0x04} = value 4.
+         * Stock sends as {0x04,0x00} (swapped). */
+        {
+            u8 calib_buf[401];
 
-        /* Table 2: cmd=0x2E + 400 bytes data */
-        gw(SM0_DATA, PIC_ADDR);
-        gw(SM0_START, 401);
-        gw(SM0_DATAOUT, pic_calib2[0]);
-        gw(SM0_STATUS, 0);
-        for (ci = 1; ci < 401; ci++) {
-            poll_ok = 0;
-            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) { poll_ok = 1; break; } udelay(10); } }
-            udelay(100);
-            gw(SM0_DATAOUT, pic_calib2[ci]);
+            /* Step 0: Wake command {0x33, 0x00, 0x01} before calibration */
+            gw(SM0_CTL1, 0x90644042); udelay(10);
+            gw(SM0_CFG, 0xFA);
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 3);
+            gw(SM0_DATAOUT, 0x33);
+            gw(SM0_STATUS, 0);
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+            udelay(1000);
+            gw(SM0_DATAOUT, 0x00);
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+            udelay(1000);
+            gw(SM0_DATAOUT, 0x01);
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+            mdelay(5);
+
+            /* Step 1: Table 1 — byte-swap int16 pairs, keep cmd byte */
+            calib_buf[0] = pic_calib1[0]; /* cmd = 0x03, no swap */
+            for (ci = 1; ci < 401; ci += 2) {
+                calib_buf[ci]     = pic_calib1[ci + 1]; /* swap: low byte first */
+                calib_buf[ci + 1] = pic_calib1[ci];     /* then high byte */
+            }
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 401);
+            gw(SM0_DATAOUT, calib_buf[0]);
+            gw(SM0_STATUS, 0);
+            for (ci = 1; ci < 401; ci++) {
+                { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+                udelay(1000);
+                gw(SM0_DATAOUT, calib_buf[ci]);
+            }
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+            mdelay(5);
+
+            /* Step 2: Table 2 — byte-swap */
+            calib_buf[0] = pic_calib2[0]; /* cmd = 0x2E */
+            for (ci = 1; ci < 401; ci += 2) {
+                calib_buf[ci]     = pic_calib2[ci + 1];
+                calib_buf[ci + 1] = pic_calib2[ci];
+            }
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 401);
+            gw(SM0_DATAOUT, calib_buf[0]);
+            gw(SM0_STATUS, 0);
+            for (ci = 1; ci < 401; ci++) {
+                { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+                udelay(1000);
+                gw(SM0_DATAOUT, calib_buf[ci]);
+            }
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
         }
-        { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
 
         /* Restore ALL SM0 registers for Linux I2C driver */
         gw(SM0_CTL1, saved_ctl1); udelay(10);
