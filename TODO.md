@@ -76,28 +76,29 @@ PIC16LF1509 на I2C addr 0x2A отдаёт тестовый паттерн `AA 
 
 ## Buzzer / Динамик
 
-### Статус: НЕ НАЙДЕН. Требуется осмотр платы.
+### Статус: НАЙДЕН! Управляется через PIC16.
 
-Роутер **пищит при включении питания** — динамик есть физически.
+Подтверждено r2 дизассемблером стокового ядра (модуль `almond_remind`):
 
-### Что проверено
-- sysfs GPIO (0, 1, 2, 29, 30) — звука нет
-- PIC I2C команды (0x10-0xF0 одиночные) — PIC NACKает через Linux I2C
-- PIC multi-byte команды ({0x33,xx,xx}, {0x34,xx,xx}, {0x2E,xx,xx}, {0x2F,xx,xx}) — FAIL через /dev/i2c-0
-- Реверс прошивки: модуль `almond_remind` + `almond_remind_handler` найден в строках ядра, но код не привязан к функциям (stripped)
-- Нет аудиофайлов в стоковой прошивке
-- Нет PWM контроллера в DTS
+**Команда buzzer: `{0x34, state, 0x00}`** через palmbus I2C write на PIC (addr 0x2A).
 
-### Гипотезы
-1. **Buzzer на GPIO через DIR bit-bang** (как дисплей) — sysfs не работает, нужен mmap. Не протестировано через ioremap
-2. **Buzzer управляется PIC16** — PIC пищит при старте до загрузки ОС. Нужен правильный I2C протокол (palmbus, не Linux driver)
-3. **Buzzer подключён к одному из "занятых" GPIO** (5-12 = UART2/UART3) — не тестировались
+```
+Ioctl arg=1: PIC write {0x34, 0x01, 0x00} — buzzer ON
+Ioctl arg=2: PIC write {0x34, 0x02, 0x00} — buzzer OFF
+```
 
-### Следующие шаги
-- [ ] Осмотр платы: найти buzzer/piezo элемент, проследить дорожку к GPIO/PIC
-- [ ] Добавить ioctl в lcd_drv для GPIO toggle через DIR регистр (тест всех GPIO)
-- [ ] Попробовать PIC команды через palmbus (как touch read, без Linux I2C driver)
-- [ ] Проверить GPIO 5-12 (UART2/UART3) через DIR bit-bang
+Стоковый код: `almond_remind_handler` (0x80414400) → вызывает `PIC_WRITE(0x2A, buf, 3)`.
+
+Модуль `almond_remind` также слушает UDP на 127.0.0.133 и принимает "правила" (таймерные события для buzzer).
+
+### Backlight
+Управляется через скрипт `/almond/sl.sh` (screen lock), не через PIC.
+В нашей реализации: GPIO 31 через `ioctl(4, 0/1)` в lcd_drv.ko.
+
+### Что делать
+- [ ] Добавить buzzer ioctl в lcd_drv.ko: `{0x34, arg, 0x00}` через palmbus write
+- [ ] Протестировать: `echo -ne '\x34\x01\x00' | i2c_write_tool`
+- [ ] LED handler (`almond_led_handler`) — тоже через PIC, нужен реверс
 
 ## LED
 
