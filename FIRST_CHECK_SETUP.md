@@ -46,17 +46,24 @@ curl -s ifconfig.me  # должен показать IP VPN сервера
 
 ### 6. WiFi клиенты через VPN
 
-**Критическая проблема:** OpenWrt nftables НЕ добавляет tun0 в wan zone автоматически. Нужно:
+**Критическая проблема:** OpenWrt nftables НЕ добавляет tun0 (OpenVPN) в firewall автоматически. Три правила нужны:
+
+1. **srcnat** — tun0 должен прыгать в srcnat_wan (masquerade)
+2. **srcnat_wan** — masquerade для br-lan→tun0
+3. **forward_lan** — разрешить forwarding lan→tun0
 
 ```bash
-# После каждого старта OVPN — добавить tun0 в firewall:
+# Главное правило! Без него masquerade НЕ работает для tun0:
+nft add rule inet fw4 srcnat oifname "tun0" jump srcnat_wan
+# Masquerade:
 nft insert rule inet fw4 srcnat_wan iifname "br-lan" oifname "tun0" meta nfproto ipv4 masquerade
+# Forward:
 nft insert rule inet fw4 forward_lan oifname "tun0" counter accept
 ```
 
-Без этого: роутер сам ходит через VPN, но WiFi клиенты — нет!
+Без `srcnat → srcnat_wan` jump: роутер сам ходит через VPN, пакеты клиентов доходят до tun0, но source IP не NAT-ится (192.168.11.x вместо 10.8.0.x) → ответы не возвращаются.
 
-**Автоматизация** — добавить в `/etc/openvpn/altair.ovpn`:
+**Автоматизация** — в `/etc/openvpn/altair.ovpn`:
 ```
 script-security 2
 up /etc/openvpn/up.sh
@@ -65,8 +72,10 @@ up /etc/openvpn/up.sh
 `/etc/openvpn/up.sh`:
 ```bash
 #!/bin/sh
-nft insert rule inet fw4 srcnat_wan iifname "br-lan" oifname "tun0" meta nfproto ipv4 masquerade
-nft insert rule inet fw4 forward_lan oifname "tun0" counter accept
+sleep 2
+nft add rule inet fw4 srcnat oifname "tun0" jump srcnat_wan 2>/dev/null
+nft insert rule inet fw4 forward_lan oifname "tun0" counter accept 2>/dev/null
+logger -t openvpn 'tun0 firewall rules applied'
 ```
 
 ### 7. LTE defaultroute
