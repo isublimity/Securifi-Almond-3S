@@ -18,7 +18,7 @@ if not B.init() then print("ERROR: /dev/lcd"); os.exit(1) end
 
 -- === Load widgets ===
 local widgets = {}
-local widget_names = {"dashboard", "vpn", "lte", "wifi", "ip", "info"}
+local widget_names = {"dashboard", "vpn", "lte", "wifi", "ip", "info", "battery"}
 
 for _, name in ipairs(widget_names) do
     local ok, w = pcall(require, "lcd.widgets." .. name)
@@ -36,8 +36,8 @@ local menu_items = {
     {name = "lte",   label = "LTE",  color = B.CYAN},
     {name = "wifi",  label = "WiFi", color = B.BLUE},
     {name = "ip",    label = "IP",   color = B.YELLOW},
+    {name = "battery", label = "BAT", color = B.ORANGE},
     {name = "info",  label = "Info", color = B.GRAY},
-    {name = "back",  label = "Back", color = B.RED},
 }
 
 local function draw_menu()

@@ -219,6 +219,34 @@ function M.traffic(iface)
     return rx, tx
 end
 
+function M.battery()
+    -- Parse PIC data from dmesg (lcd_drv writes it at boot)
+    local raw = M.sh("dmesg | grep 'PIC raw' | tail -1")
+    local bytes = {}
+    for b in raw:gmatch("%x%x") do bytes[#bytes+1] = tonumber(b, 16) end
+
+    local r = {present = false, raw = 0, percent = -1, charging = false}
+    if #bytes >= 8 then
+        -- Byte 6: bit 6 = no-battery flag (0x40)
+        -- 0x01 = battery present, 0x41 = no battery
+        local status_byte = bytes[7] -- 0-indexed byte 6
+        r.present = (status_byte and (status_byte % 128) < 64) -- bit 6 clear
+
+        -- Bytes 4-5 might be raw ADC or other data
+        if bytes[5] and bytes[6] then
+            r.raw = bytes[5] * 256 + bytes[6]
+        end
+
+        -- Simple percentage estimate from raw data
+        -- Stock: 0x2CC (716) = 100%, 0x191 (401) = 0%
+        -- Our data seems different format — use presence only for now
+        if r.present then
+            r.percent = 50 -- placeholder until we decode ADC
+        end
+    end
+    return r
+end
+
 function M.uptime()
     return M.sh("uptime"):match("up (.-),%s") or "?"
 end
