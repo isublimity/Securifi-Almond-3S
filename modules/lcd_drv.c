@@ -1108,12 +1108,12 @@ static int __init lcd_drv_init(void)
         for (ci = 1; ci < 401; ci++) {
             /* Poll 0x918 bit 1 (write ready) */
             poll_ok = 0;
-            { int p; for (p = 0; p < 100000; p++) { if (gr(0x918) & 0x02) { poll_ok = 1; break; } udelay(1); } }
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) { poll_ok = 1; break; } udelay(10); } }
             udelay(100);
             gw(SM0_DATAOUT, pic_calib1[ci]);
         }
         /* Wait completion: poll bit 0 */
-        { int p; for (p = 0; p < 100000; p++) { if (gr(0x918) & 0x01) break; udelay(1); } }
+        { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
         mdelay(5);
 
         /* Table 2: cmd=0x2E + 400 bytes data */
@@ -1123,11 +1123,11 @@ static int __init lcd_drv_init(void)
         gw(SM0_STATUS, 0);
         for (ci = 1; ci < 401; ci++) {
             poll_ok = 0;
-            { int p; for (p = 0; p < 100000; p++) { if (gr(0x918) & 0x02) { poll_ok = 1; break; } udelay(1); } }
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) { poll_ok = 1; break; } udelay(10); } }
             udelay(100);
             gw(SM0_DATAOUT, pic_calib2[ci]);
         }
-        { int p; for (p = 0; p < 100000; p++) { if (gr(0x918) & 0x01) break; udelay(1); } }
+        { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
 
         /* Restore ALL SM0 registers for Linux I2C driver */
         gw(SM0_CTL1, saved_ctl1); udelay(10);
@@ -1138,42 +1138,91 @@ static int __init lcd_drv_init(void)
         /* Wait for PIC to process calibration */
         mdelay(2000);
 
-        /* Read battery via LINUX I2C (not palmbus!) */
-        if (touch_i2c_adap) {
+        /* Send battery read command {0x2F, 0x00, 0x02} via palmbus write */
+        {
             u8 bat_cmd[3] = { 0x2F, 0x00, 0x02 };
             u8 bat_resp[17] = {0};
-            struct i2c_msg msgs[2] = {
-                { .addr = PIC_ADDR, .flags = 0, .len = 3, .buf = bat_cmd },
-                { .addr = PIC_ADDR, .flags = I2C_M_RD, .len = 17, .buf = bat_resp },
-            };
-            int ret;
 
-            /* Try write+read (repeated start) up to 3 times */
-            for (ci = 0; ci < 3; ci++) {
-                ret = i2c_transfer(touch_i2c_adap, msgs, 2);
-                if (ret >= 0) break;
-                mdelay(50);
+            gw(SM0_CTL1, 0x90644042); udelay(10);
+            gw(SM0_CFG, 0xFA);
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 3);
+            gw(SM0_DATAOUT, bat_cmd[0]);
+            gw(SM0_STATUS, 0);
+            for (ci = 1; ci < 3; ci++) {
+                { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+                udelay(1000);
+                gw(SM0_DATAOUT, bat_cmd[ci]);
             }
-            if (ret >= 0) {
-                pr_info("lcd_drv: PIC battery (Linux I2C): %02x %02x %02x %02x %02x %02x %02x\n",
-                        bat_resp[0], bat_resp[1], bat_resp[2], bat_resp[3],
-                        bat_resp[4], bat_resp[5], bat_resp[6]);
-                memcpy(pic_battery_raw, bat_resp, 17);
-                pic_battery_valid = (bat_resp[0] != 0xAA);
-            } else {
-                /* Fallback: simple read */
-                struct i2c_msg rmsg = { .addr = PIC_ADDR, .flags = I2C_M_RD, .len = 17, .buf = bat_resp };
-                ret = i2c_transfer(touch_i2c_adap, &rmsg, 1);
-                if (ret >= 0) {
-                    pr_info("lcd_drv: PIC battery (fallback): %02x %02x %02x %02x %02x %02x %02x\n",
-                            bat_resp[0], bat_resp[1], bat_resp[2], bat_resp[3],
-                            bat_resp[4], bat_resp[5], bat_resp[6]);
-                    memcpy(pic_battery_raw, bat_resp, 17);
-                    pic_battery_valid = (bat_resp[1] != 0x54); /* 0x54 = no battery pattern */
-                } else {
-                    pr_info("lcd_drv: PIC not responding via Linux I2C (%d)\n", ret);
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+            mdelay(200);
+
+            /* Read 17 bytes using NEW i2c-mt7621 register interface (6.12+)
+             * Registers at base 0x900:
+             *   SM0CTL0 = 0x940, SM0CTL1 = 0x944
+             *   SM0D0 = 0x950, SM0D1 = 0x954
+             * Protocol: START → addr+R → READ chunks → STOP
+             */
+            #define NEW_CTL0  0x940
+            #define NEW_CTL1  0x944
+            #define NEW_D0    0x950
+            #define NEW_D1    0x954
+            #define N_TRI     0x01
+            #define N_START   0x10
+            #define N_WRITE   0x20
+            #define N_STOP    0x30
+            #define N_READ_L  0x40  /* read last (NACK) */
+            #define N_READ    0x50  /* read (ACK) */
+            #define N_PGLEN(x) ((((x)-1)<<8) & 0x700)
+
+            /* Restore SM0CTL0 for normal operation */
+            gw(NEW_CTL0, saved_ctl1); udelay(10);
+
+            /* Wait idle */
+            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+
+            /* START */
+            gw(NEW_CTL1, N_START | N_TRI);
+            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+
+            /* Write address + R bit */
+            gw(NEW_D0, (PIC_ADDR << 1) | 1);
+            gw(NEW_CTL1, N_WRITE | N_TRI | N_PGLEN(1));
+            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+
+            /* Read 17 bytes in 8+8+1 chunks */
+            {
+                int rd_off = 0;
+                int remaining = 17;
+                while (remaining > 0) {
+                    int chunk = (remaining > 8) ? 8 : remaining;
+                    u32 cmd = (remaining > 8) ? N_READ : N_READ_L;
+                    u32 d0, d1;
+
+                    gw(NEW_CTL1, cmd | N_TRI | N_PGLEN(chunk));
+                    { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+
+                    d0 = gr(NEW_D0);
+                    d1 = gr(NEW_D1);
+                    memcpy(&bat_resp[rd_off], &d0, chunk > 4 ? 4 : chunk);
+                    if (chunk > 4)
+                        memcpy(&bat_resp[rd_off + 4], &d1, chunk - 4);
+
+                    rd_off += chunk;
+                    remaining -= chunk;
                 }
             }
+
+            /* STOP */
+            gw(NEW_CTL1, N_STOP | N_TRI);
+            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+
+            pr_info("lcd_drv: PIC battery (palmbus): %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                    bat_resp[0], bat_resp[1], bat_resp[2], bat_resp[3],
+                    bat_resp[4], bat_resp[5], bat_resp[6], bat_resp[7],
+                    bat_resp[8], bat_resp[9], bat_resp[10]);
+            memcpy(pic_battery_raw, bat_resp, 17);
+            pic_battery_valid = (bat_resp[0] != 0xAA && bat_resp[0] != 0xFF);
         }
     }
 
