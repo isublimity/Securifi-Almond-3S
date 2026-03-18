@@ -150,8 +150,9 @@ end
 
 -- === Data collection ===
 
-function M.sh(cmd)
-    local f = io.popen(cmd .. " 2>/dev/null")
+function M.sh(cmd, timeout_sec)
+    timeout_sec = timeout_sec or 3
+    local f = io.popen("((" .. cmd .. ") & PID=$!; (sleep " .. timeout_sec .. "; kill $PID 2>/dev/null) & wait $PID) 2>/dev/null")
     if not f then return "" end
     local o = f:read("*a") or ""
     f:close()
