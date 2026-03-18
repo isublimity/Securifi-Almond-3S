@@ -1085,85 +1085,95 @@ static int __init lcd_drv_init(void)
     /* SX8650 touchscreen init */
     sx8650_hw_init();
 
-    /* PIC16 battery: send calibration tables via palmbus I2C */
+    /* PIC16 battery: send calibration via palmbus STOCK PROTOCOL,
+     * then read battery via Linux I2C.
+     *
+     * Stock protocol: SM0_START = total_len (ONCE), poll 0x918 bit 1,
+     * then SM0_DATAOUT for each byte. NOT SM0_START=0 per byte!
+     */
     {
-        int ci;
-        pr_info("lcd_drv: PIC calibration sending...\n");
+        int ci, poll_ok;
+        u32 saved_ctl1 = gr(SM0_CTL1);
+        u32 saved_cfg = gr(SM0_CFG);
 
-        /* Table 1: cmd=0x03 + 400 bytes */
+        pr_info("lcd_drv: PIC calibration sending (stock protocol)...\n");
+
+        /* Table 1: cmd=0x03 + 400 bytes data */
         gw(SM0_CTL1, 0x90644042); udelay(10);
+        gw(SM0_CFG, 0xFA);
         gw(SM0_DATA, PIC_ADDR);
-        for (ci = 0; ci < 401; ci++) {
+        gw(SM0_START, 401);           /* TOTAL length, set ONCE */
+        gw(SM0_DATAOUT, pic_calib1[0]); /* first byte = cmd 0x03 */
+        gw(SM0_STATUS, 0);             /* write mode */
+        for (ci = 1; ci < 401; ci++) {
+            /* Poll 0x918 bit 1 (write ready) */
+            poll_ok = 0;
+            { int p; for (p = 0; p < 100000; p++) { if (gr(0x918) & 0x02) { poll_ok = 1; break; } udelay(1); } }
+            udelay(100);
             gw(SM0_DATAOUT, pic_calib1[ci]);
-            gw(SM0_STATUS, 0);
-            udelay(150);
-            gw(SM0_START, 0);
-            udelay(150);
         }
-        gw(SM0_STATUS, 2); udelay(150);
-        gw(SM0_START, 0); udelay(150);
-        gw(SM0_CTL1, 0x8064800E); udelay(10);
-        mdelay(100);
+        /* Wait completion: poll bit 0 */
+        { int p; for (p = 0; p < 100000; p++) { if (gr(0x918) & 0x01) break; udelay(1); } }
+        mdelay(5);
 
-        /* Table 2: cmd=0x2E + 400 bytes */
-        gw(SM0_CTL1, 0x90644042); udelay(10);
+        /* Table 2: cmd=0x2E + 400 bytes data */
         gw(SM0_DATA, PIC_ADDR);
-        for (ci = 0; ci < 401; ci++) {
+        gw(SM0_START, 401);
+        gw(SM0_DATAOUT, pic_calib2[0]);
+        gw(SM0_STATUS, 0);
+        for (ci = 1; ci < 401; ci++) {
+            poll_ok = 0;
+            { int p; for (p = 0; p < 100000; p++) { if (gr(0x918) & 0x02) { poll_ok = 1; break; } udelay(1); } }
+            udelay(100);
             gw(SM0_DATAOUT, pic_calib2[ci]);
-            gw(SM0_STATUS, 0);
-            udelay(150);
-            gw(SM0_START, 0);
-            udelay(150);
         }
-        gw(SM0_STATUS, 2); udelay(150);
-        gw(SM0_START, 0); udelay(150);
-        gw(SM0_CTL1, 0x8064800E); udelay(10);
-        mdelay(100);
+        { int p; for (p = 0; p < 100000; p++) { if (gr(0x918) & 0x01) break; udelay(1); } }
 
-        pr_info("lcd_drv: PIC calibration sent (2 x 401 bytes)\n");
+        /* Restore ALL SM0 registers for Linux I2C driver */
+        gw(SM0_CTL1, saved_ctl1); udelay(10);
+        gw(SM0_CFG, saved_cfg); udelay(10);
 
-        /* Read battery to verify */
-        mdelay(1000);
-        {
-            u8 buf[17] = {0};
-            u8 wake[3] = { 0x2F, 0x00, 0x02 };
-            /* Send battery read command via palmbus */
-            gw(SM0_CTL1, 0x90644042); udelay(10);
-            gw(SM0_DATA, PIC_ADDR);
+        pr_info("lcd_drv: PIC calibration sent (stock protocol)\n");
+
+        /* Wait for PIC to process calibration */
+        mdelay(2000);
+
+        /* Read battery via LINUX I2C (not palmbus!) */
+        if (touch_i2c_adap) {
+            u8 bat_cmd[3] = { 0x2F, 0x00, 0x02 };
+            u8 bat_resp[17] = {0};
+            struct i2c_msg msgs[2] = {
+                { .addr = PIC_ADDR, .flags = 0, .len = 3, .buf = bat_cmd },
+                { .addr = PIC_ADDR, .flags = I2C_M_RD, .len = 17, .buf = bat_resp },
+            };
+            int ret;
+
+            /* Try write+read (repeated start) up to 3 times */
             for (ci = 0; ci < 3; ci++) {
-                gw(SM0_DATAOUT, wake[ci]);
-                gw(SM0_STATUS, 0);
-                udelay(150);
-                gw(SM0_START, 0);
-                udelay(150);
+                ret = i2c_transfer(touch_i2c_adap, msgs, 2);
+                if (ret >= 0) break;
+                mdelay(50);
             }
-            gw(SM0_STATUS, 2); udelay(150);
-            gw(SM0_START, 0); udelay(150);
-            gw(SM0_CTL1, 0x8064800E); udelay(10);
-            mdelay(200);
-
-            /* Read response */
-            gw(SM0_CTL1, 0x90644042); udelay(10);
-            gw(SM0_DATA, PIC_ADDR);
-            gw(SM0_START, 0); udelay(10);
-            gw(SM0_DATAOUT, (PIC_ADDR << 1) | 1);
-            gw(SM0_STATUS, 2); udelay(150);
-            gw(SM0_CFG, 0xFA);
-            gw(SM0_START, 0); udelay(10);
-            gw(SM0_START, 1); gw(SM0_START, 1); udelay(10);
-            gw(SM0_STATUS, 1); udelay(150);
-            for (ci = 0; ci < 17; ci++) {
-                buf[ci] = gr(SM0_DATAIN) & 0xFF;
-                udelay(150);
+            if (ret >= 0) {
+                pr_info("lcd_drv: PIC battery (Linux I2C): %02x %02x %02x %02x %02x %02x %02x\n",
+                        bat_resp[0], bat_resp[1], bat_resp[2], bat_resp[3],
+                        bat_resp[4], bat_resp[5], bat_resp[6]);
+                memcpy(pic_battery_raw, bat_resp, 17);
+                pic_battery_valid = (bat_resp[0] != 0xAA);
+            } else {
+                /* Fallback: simple read */
+                struct i2c_msg rmsg = { .addr = PIC_ADDR, .flags = I2C_M_RD, .len = 17, .buf = bat_resp };
+                ret = i2c_transfer(touch_i2c_adap, &rmsg, 1);
+                if (ret >= 0) {
+                    pr_info("lcd_drv: PIC battery (fallback): %02x %02x %02x %02x %02x %02x %02x\n",
+                            bat_resp[0], bat_resp[1], bat_resp[2], bat_resp[3],
+                            bat_resp[4], bat_resp[5], bat_resp[6]);
+                    memcpy(pic_battery_raw, bat_resp, 17);
+                    pic_battery_valid = (bat_resp[1] != 0x54); /* 0x54 = no battery pattern */
+                } else {
+                    pr_info("lcd_drv: PIC not responding via Linux I2C (%d)\n", ret);
+                }
             }
-            gw(SM0_START, 0); udelay(10);
-            gw(SM0_START, 1);
-            gw(SM0_CTL1, 0x8064800E); udelay(10);
-
-            pr_info("lcd_drv: PIC battery: %02x %02x %02x %02x %02x %02x %02x\n",
-                    buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6]);
-            memcpy(pic_battery_raw, buf, 17);
-            pic_battery_valid = (buf[0] != 0xAA);
         }
     }
 
