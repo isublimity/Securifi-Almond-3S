@@ -1,2 +1,4 @@
 out/*.o
 private/
+build_config.sh
+.DS_Store

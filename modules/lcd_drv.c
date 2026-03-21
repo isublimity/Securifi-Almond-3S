@@ -20,11 +20,13 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/i2c.h>
+#include <linux/gpio.h>
 
 #include "splash_4pda.h"
 #include "pic_calib.h"
 
 #define DEVICE_NAME  "lcd"
+#define LCD_DRV_VERSION "0.37"
 #define LCD_W        320
 #define LCD_H        240
 #define FB_SIZE      (LCD_W * LCD_H * 2)  /* RGB565 */
@@ -71,8 +73,11 @@ static inline u32 gr(u32 off) { return __raw_readl(gpio_base + off); }
 /*
  * Write GPIO DIR register preserving non-LCD pins.
  * Only LCD_PIN_MASK bits come from lcd_bits, rest from base_dir.
+ * bb_lock: when set, skip DIR writes (bit-bang I2C in progress)
  */
+static volatile int bb_lock;
 static inline void gw_dir(u32 lcd_bits) {
+    if (bb_lock) return;  /* bit-bang I2C owns DIR register */
     gw(GPIO_DIR_OFF, base_dir | (lcd_bits & LCD_PIN_MASK));
 }
 
@@ -669,12 +674,26 @@ static ssize_t lcd_fb_write(struct file *f, const char __user *buf,
 
 /* SM0 I2C controller registers */
 #define SM0_CFG     0x900
+#define SM0_CFG2    0x928  /* bit 0 = auto mode enable */
 #define SM0_DATA    0x908
 #define SM0_DATAOUT 0x910
 #define SM0_DATAIN  0x914
 #define SM0_STATUS  0x91C
 #define SM0_START   0x920
 #define SM0_CTL1    0x940
+
+/* New SM0 registers (kernel 6.12 i2c-mt7621) */
+#define NEW_CTL0  0x940
+#define NEW_CTL1  0x944
+#define NEW_D0    0x950
+#define NEW_D1    0x954
+#define N_TRI     0x01
+#define N_START   0x10
+#define N_WRITE   0x20
+#define N_STOP    0x30
+#define N_READ_L  0x40
+#define N_READ    0x50
+#define N_PGLEN(x) ((((x)-1)<<8) & 0x700)
 
 static int touch_x, touch_y;
 static int touch_pressed;
@@ -687,6 +706,240 @@ static struct i2c_adapter *touch_i2c_adap;
 
 static u8 pic_battery_raw[PIC_BATTERY_LEN];
 static int pic_battery_valid;
+
+static DEFINE_MUTEX(i2c_bus_mutex);  /* protects SM0 + I2C pins between touch and battery */
+
+/* === GPIO bit-bang I2C for PIC ===
+ * SM0 auto mode corrupts PIC on kernel 6.12!
+ * Bypass SM0 entirely — bit-bang I2C via GPIO 3 (SDA) and GPIO 4 (SCL).
+ * Uses DIR register: DIR=1+DATA=0 → drive LOW, DIR=0 → float HIGH (pull-up)
+ * Must temporarily switch GPIOMODE to put I2C pins in GPIO mode.
+ */
+#define BB_SDA_GPIO  515  /* gpiochip0 base=512 + pin 3 */
+#define BB_SCL_GPIO  516  /* gpiochip0 base=512 + pin 4 */
+#define BB_DELAY 10  /* us, ~50kHz — slower for gpio API overhead */
+
+static void bb_sda_low(void)  { gpio_direction_output(BB_SDA_GPIO, 0); udelay(1); }
+static void bb_sda_high(void) { gpio_direction_input(BB_SDA_GPIO); udelay(1); }
+static void bb_scl_low(void)  { gpio_direction_output(BB_SCL_GPIO, 0); udelay(BB_DELAY); }
+static void bb_scl_high(void) {
+    int timeout = 1000;
+    gpio_direction_input(BB_SCL_GPIO);
+    /* Wait for slave to release SCL (clock stretching support) */
+    while (!gpio_get_value(BB_SCL_GPIO) && timeout--)
+        udelay(1);
+    udelay(BB_DELAY);
+}
+static int __maybe_unused bb_sda_read(void) { gpio_direction_input(BB_SDA_GPIO); udelay(2); return gpio_get_value(BB_SDA_GPIO); }
+
+static void bb_i2c_start(void)
+{
+    bb_sda_high(); bb_scl_high(); udelay(BB_DELAY);
+    bb_sda_low(); udelay(BB_DELAY);  /* SDA↓ while SCL HIGH = START */
+    bb_scl_low();
+}
+
+static void bb_i2c_stop(void)
+{
+    bb_sda_low(); bb_scl_high(); udelay(BB_DELAY);
+    bb_sda_high(); udelay(BB_DELAY);  /* SDA↑ while SCL HIGH = STOP */
+}
+
+static void bb_i2c_restart(void)
+{
+    /* Restart = Start without Stop. SCL is LOW after last byte. */
+    bb_sda_high(); udelay(BB_DELAY);   /* SDA HIGH first */
+    bb_scl_high(); udelay(BB_DELAY);   /* SCL HIGH (wait stretch) */
+    bb_sda_low();  udelay(BB_DELAY);   /* SDA↓ while SCL HIGH = RESTART */
+    bb_scl_low();                       /* SCL LOW — ready for address */
+}
+
+static int bb_i2c_write_byte(u8 byte)
+{
+    int i, ack;
+    for (i = 7; i >= 0; i--) {
+        if ((byte >> i) & 1) bb_sda_high(); else bb_sda_low();
+        bb_scl_high(); bb_scl_low();
+    }
+    /* Read ACK: release SDA, slave pulls LOW = ACK */
+    gpio_direction_input(BB_SDA_GPIO);
+    udelay(5);
+    bb_scl_high();
+    udelay(5);
+    ack = gpio_get_value(BB_SDA_GPIO);
+    bb_scl_low();
+    udelay(10);  /* settling time before next byte */
+    return (ack == 0);  /* 1 = ACK received */
+}
+
+static u8 bb_i2c_read_byte(int send_ack)
+{
+    u8 byte = 0;
+    int i;
+    gpio_direction_input(BB_SDA_GPIO);
+    udelay(5);
+
+    for (i = 7; i >= 0; i--) {
+        bb_scl_high();
+        udelay(3);
+        if (gpio_get_value(BB_SDA_GPIO)) byte |= (1 << i);
+        bb_scl_low();
+
+        /* On LAST data bit: set ACK IMMEDIATELY while SCL still LOW.
+         * gpio_direction_output takes time through pinctrl —
+         * start early so SDA is LOW before 9th SCL rises. */
+        if (i == 0 && send_ack) {
+            gpio_direction_output(BB_SDA_GPIO, 0);
+            udelay(30);  /* LONG setup — ensure SDA physically LOW */
+        } else {
+            udelay(3);
+        }
+    }
+
+    if (!send_ack) {
+        /* NACK — ensure SDA HIGH */
+        gpio_direction_input(BB_SDA_GPIO);
+        udelay(10);
+    }
+
+    /* 9th clock — PIC samples ACK/NACK */
+    bb_scl_high();
+    udelay(5);
+    bb_scl_low();
+    udelay(5);
+
+    /* Release SDA, wait for PIC to load next byte (clock stretch) */
+    gpio_direction_input(BB_SDA_GPIO);
+    udelay(20);
+    return byte;
+}
+
+/* Acquire I2C GPIO pins — must also fix base_dir to prevent LCD gw_dir() overwrite */
+static u32 bb_saved_gpiomode;
+
+static int bb_sda_ok, bb_scl_ok;
+
+static void bb_acquire(void)
+{
+    bb_saved_gpiomode = gr(GPIOMODE_OFF);
+    bb_lock = 1;
+    wmb();
+
+    /* Switch pinmux to GPIO + request via kernel API */
+    gw(GPIOMODE_OFF, bb_saved_gpiomode | (1 << 2));
+    udelay(100);
+    bb_sda_ok = (gpio_request(BB_SDA_GPIO, "bb_sda") == 0);
+    bb_scl_ok = (gpio_request(BB_SCL_GPIO, "bb_scl") == 0);
+
+    /* Both HIGH (input, pull-up) */
+    gpio_direction_input(BB_SDA_GPIO);
+    gpio_direction_input(BB_SCL_GPIO);
+    udelay(200);
+
+    pr_info("lcd_drv: BB acquire: sda_req=%d scl_req=%d SDA=%d SCL=%d\n",
+            bb_sda_ok, bb_scl_ok,
+            gpio_get_value(BB_SDA_GPIO), gpio_get_value(BB_SCL_GPIO));
+}
+
+static void bb_release(void)
+{
+    gpio_direction_input(BB_SDA_GPIO);
+    gpio_direction_input(BB_SCL_GPIO);
+    udelay(10);
+    if (bb_sda_ok) gpio_free(BB_SDA_GPIO);
+    if (bb_scl_ok) gpio_free(BB_SCL_GPIO);
+    gw(GPIOMODE_OFF, bb_saved_gpiomode);
+    udelay(50);
+    bb_lock = 0;
+    wmb();
+}
+
+/* Combined Write+Restart+Read — the correct I2C protocol for PIC.
+ * Sends cmd bytes, then Restart, then reads response. */
+static int __maybe_unused bb_pic_combined(const u8 *cmd, int cmd_len, u8 *resp, int resp_len)
+{
+    int i, ok = 1;
+
+    bb_acquire();
+
+    /* Write phase: START → addr+W → cmd bytes */
+    bb_i2c_start();
+    if (!bb_i2c_write_byte((PIC_ADDR << 1) | 0)) {
+        pr_info("lcd_drv: BB combined: addr+W NACK\n");
+        ok = 0; goto done;
+    }
+    for (i = 0; i < cmd_len; i++) {
+        if (!bb_i2c_write_byte(cmd[i])) {
+            pr_info("lcd_drv: BB combined: data[%d] NACK\n", i);
+            ok = 0; goto done;
+        }
+    }
+
+    /* RESTART (not Stop!) — PIC resets slave logic, ready for Read */
+    bb_i2c_restart();
+
+    /* Read phase: addr+R → read bytes → NACK last → STOP */
+    if (!bb_i2c_write_byte((PIC_ADDR << 1) | 1)) {
+        pr_info("lcd_drv: BB combined: addr+R NACK\n");
+        ok = 0; goto done;
+    }
+    for (i = 0; i < resp_len; i++)
+        resp[i] = bb_i2c_read_byte(i < resp_len - 1);  /* ACK all, NACK last */
+
+done:
+    bb_i2c_stop();
+    bb_release();
+    return ok;
+}
+
+/* Write buffer to PIC via bit-bang I2C. Returns 1 on success. */
+static int __maybe_unused bb_pic_write(const u8 *data, int len)
+{
+    int i, ok = 1;
+
+    bb_acquire();
+
+    /* I2C transaction */
+    bb_i2c_start();
+    if (!bb_i2c_write_byte((PIC_ADDR << 1) | 0)) {  /* write address */
+        pr_info("lcd_drv: BB PIC addr NACK!\n");
+        ok = 0;
+    }
+    if (ok) {
+        for (i = 0; i < len; i++) {
+            if (!bb_i2c_write_byte(data[i])) {
+                pr_info("lcd_drv: BB PIC data[%d] NACK!\n", i);
+                ok = 0; break;
+            }
+        }
+    }
+    bb_i2c_stop();
+    bb_release();
+
+    return ok;
+}
+
+/* Read bytes from PIC via bit-bang I2C. Returns bytes read. */
+static int __maybe_unused bb_pic_read(u8 *buf, int len)
+{
+    int i, ok = 1;
+
+    bb_acquire();
+
+    bb_i2c_start();
+    if (!bb_i2c_write_byte((PIC_ADDR << 1) | 1)) {  /* read address */
+        pr_info("lcd_drv: BB PIC read addr NACK!\n");
+        ok = 0;
+    }
+    if (ok) {
+        for (i = 0; i < len; i++)
+            buf[i] = bb_i2c_read_byte(i < len - 1);  /* ACK all except last */
+    }
+    bb_i2c_stop();
+    bb_release();
+
+    return ok ? len : 0;
+}
 
 /* Palmbus I2C raw helpers */
 static void i2c_raw_write(u8 val)
@@ -717,10 +970,7 @@ static void sx8650_hw_init(void)
 {
     u32 saved_ctl1 = gr(SM0_CTL1);
 
-    /* Get I2C adapter for PIC battery (Linux I2C) */
-    touch_i2c_adap = i2c_get_adapter(0);
-    if (!touch_i2c_adap)
-        pr_warn("lcd_drv: cannot get I2C adapter 0 (PIC battery won't work)\n");
+    /* i2c adapter already obtained in early PIC read */
 
     /* SX8650 init via palmbus (needs SM0_CTL1=0x90644042) */
     gw(SM0_CTL1, 0x90644042);
@@ -869,14 +1119,9 @@ static int __maybe_unused pic_i2c_write(u8 *data, int len)
  * 1. Write {0x2F, 0x00, 0x02} then read
  * 2. Simple read (no command)
  */
-static int pic_read_battery(void)
+static int __maybe_unused pic_read_battery(void)
 {
     int ret;
-
-    /* PIC returns test pattern (AA 54 A8...) without calibration.
-     * Battery monitoring blocked until PICkit programmer or
-     * stock firmware calibration data is available.
-     * Send wake-up command 0x33 first, then read. */
     {
         u8 wake[3] = { 0x33, 0x00, 0x01 };
         pic_i2c_write(wake, 3);
@@ -884,10 +1129,6 @@ static int pic_read_battery(void)
     }
     ret = pic_i2c_read(pic_battery_raw, PIC_BATTERY_LEN);
     if (!ret) {
-        pr_info("lcd_drv: PIC alive, data: %02x %02x %02x %02x %02x %02x %02x\n",
-                pic_battery_raw[0], pic_battery_raw[1], pic_battery_raw[2],
-                pic_battery_raw[3], pic_battery_raw[4], pic_battery_raw[5],
-                pic_battery_raw[6]);
         pic_battery_valid = 1;
     } else {
         pr_info("lcd_drv: PIC not responding (%d)\n", ret);
@@ -897,27 +1138,141 @@ static int pic_read_battery(void)
 }
 
 /* Touch polling thread */
+/*
+ * Read PIC battery via new SM0 registers (0x944/0x950/0x954).
+ * Called from touch thread with SM0 in known state (after touch restore).
+ */
+static void __maybe_unused pic_read_battery_palmbus(void)
+{
+    u8 resp[17] = {0};
+    u32 saved_ctl1 = gr(SM0_CTL1);
+    int i;
+
+    /* EXACT stock kernel protocol (from IDA_DATA_TRACE.md):
+     * SM0_DATA = 0x2A (kept from previous write — DO NOT change!)
+     * SM0_START = count - 1 (NOT count!)
+     * SM0_STATUS = 1 (READ mode)
+     * Poll SM0_POLLSTA bit 0x04 (NOT 0x02!)
+     * udelay(10) after ready
+     * Read SM0_DATAIN */
+
+    gw(SM0_CTL1, 0x90640042); udelay(10);  /* Stock CTL1 value */
+    gw(SM0_DATA, PIC_ADDR);                 /* Ensure PIC addr set */
+
+    gw(SM0_START, 8 - 1);                   /* count-1 = 7 for 8 bytes! */
+    gw(SM0_STATUS, 1);                       /* READ mode */
+
+    for (i = 0; i < 8; i++) {
+        int p;
+        /* Poll POLLSTA bit 0x04 (bit 2) — NOT 0x02! */
+        for (p = 0; p < 100000; p++) {
+            if (gr(0x918) & 0x04) break;
+        }
+        udelay(10);
+        resp[i] = gr(SM0_DATAIN) & 0xFF;
+    }
+
+    /* Restore */
+    gw(SM0_CTL1, saved_ctl1); udelay(10);
+
+    /* Log and update battery data */
+    /* Byte 0 = SM0 echo (0xFF), bytes 1+ = PIC data.
+     * Bytes 2-3 = raw ADC value. Thresholds: <401=CRIT, 401-541=LOW, >=542=NORMAL */
+    {
+        int adc_raw = ((resp[2] & 0xFF) << 8) | (resp[3] & 0xFF);
+        const char *level = (adc_raw < 401) ? "CRIT" : (adc_raw < 542) ? "LOW" : "OK";
+        pr_info("lcd_drv: PIC BAT: ADC=%d (%s) [%02x %02x %02x %02x %02x %02x %02x %02x]\n",
+                adc_raw, level,
+                resp[0], resp[1], resp[2], resp[3],
+                resp[4], resp[5], resp[6], resp[7]);
+
+        if (resp[1] != 0x00 && resp[1] != 0xFF) {
+            memcpy(pic_battery_raw, resp, 8);
+            pic_battery_valid = 1;
+        }
+    }
+}
+
 static int touch_fn(void *data)
 {
     int x, y, was_pressed = 0;
     int no_touch_count = 0;
+    int battery_counter = 0;
+    /* bat_write_counter removed — no writes in loop */
 
     while (!kthread_should_stop()) {
-        if (sx8650_read_xy(&x, &y)) {
-            touch_x = x;
-            touch_y = y;
-            touch_pressed = 1;
-            no_touch_count = 0;
-            if (!was_pressed)
-                pr_info("lcd_drv: touch DOWN x=%d y=%d (raw data logged)\n", x, y);
-            was_pressed = 1;
-        } else {
-            no_touch_count++;
-            if (no_touch_count > 10 && was_pressed) {  /* 500ms hold */
-                touch_pressed = 0;
-                was_pressed = 0;
-                pr_info("lcd_drv: touch UP\n");
+
+        /* Battery: i2c_transfer through PATCHED kernel i2c-mt7621.
+         * Patch: byte-by-byte reads (supports PIC clock stretching).
+         * Try all methods every cycle. */
+        battery_counter++;
+        if (battery_counter >= 100) {  /* every 5 sec */
+            battery_counter = 0;
+
+            if (touch_i2c_adap) {
+                u8 resp[8] = {0};
+                int ret;
+
+                /* Method 1: i2c_transfer read-only 6 bytes */
+                ret = pic_i2c_read(resp, 6);
+                pr_info("lcd_drv: PIC i2c_rd6: ret=%d "
+                        "[%02x %02x %02x %02x %02x %02x]\n", ret,
+                        resp[0], resp[1], resp[2], resp[3],
+                        resp[4], resp[5]);
+
+                /* Method 2: i2c_transfer read 1 byte */
+                {
+                    u8 one[1] = {0};
+                    int r1 = pic_i2c_read(one, 1);
+                    pr_info("lcd_drv: PIC i2c_rd1: ret=%d [%02x]\n",
+                            r1, one[0]);
+                }
+
+                /* Method 3: i2c_transfer write {2F} + read 6 (2 msgs) */
+                {
+                    u8 cmd = 0x2F;
+                    u8 rd[6] = {0};
+                    struct i2c_msg msgs[2] = {
+                        { .addr = PIC_ADDR, .flags = 0,
+                          .len = 1, .buf = &cmd },
+                        { .addr = PIC_ADDR, .flags = I2C_M_RD,
+                          .len = 6, .buf = rd },
+                    };
+                    int r2 = i2c_transfer(touch_i2c_adap, msgs, 2);
+                    pr_info("lcd_drv: PIC i2c_wr1rd6: ret=%d "
+                            "[%02x %02x %02x %02x %02x %02x]\n", r2,
+                            rd[0], rd[1], rd[2], rd[3], rd[4], rd[5]);
+                    if (r2 >= 0) memcpy(resp, rd, 6);
+                }
+
+                if (resp[0] != 0x00 && resp[0] != 0xFF &&
+                    resp[0] != 0xAA && resp[0] != 0x54) {
+                    memcpy(pic_battery_raw, resp, 6);
+                    pic_battery_valid = 1;
+                    pr_info("lcd_drv: *** PIC REAL DATA! ***\n");
+                }
             }
+        }
+
+        /* Touch read DISABLED — no palmbus SM0 access, only i2c_transfer for PIC */
+        if (0 && mutex_trylock(&i2c_bus_mutex)) {
+            if (sx8650_read_xy(&x, &y)) {
+                touch_x = x;
+                touch_y = y;
+                touch_pressed = 1;
+                no_touch_count = 0;
+                if (!was_pressed)
+                    pr_info("lcd_drv: touch DOWN x=%d y=%d (raw data logged)\n", x, y);
+                was_pressed = 1;
+            } else {
+                no_touch_count++;
+                if (no_touch_count > 10 && was_pressed) {
+                    touch_pressed = 0;
+                    was_pressed = 0;
+                    pr_info("lcd_drv: touch UP\n");
+                }
+            }
+            mutex_unlock(&i2c_bus_mutex);
         }
 
         msleep(50);
@@ -940,13 +1295,10 @@ static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
         return 0;
     }
     if (cmd == 2) {
-        /* Read battery via PIC I2C command 0x2F */
-        int ret = pic_read_battery();
-        if (ret)
-            return ret;
+        /* Return latest battery data from periodic palmbus read */
         if (copy_to_user((void __user *)arg, pic_battery_raw, PIC_BATTERY_LEN))
             return -EFAULT;
-        return 0;
+        return pic_battery_valid ? 0 : -ENODATA;
     }
     if (cmd == 3) {
         /* Raw PIC read (no write command, just read) */
@@ -1082,198 +1434,283 @@ static int __init lcd_drv_init(void)
     render_scene(current_scene, 0);
     lcd_flush_fb();
 
+    /* === VERY FIRST: Read PIC BEFORE any SM0 modification ===
+     * Get i2c adapter first, then read PIC while SM0 is untouched. */
+    touch_i2c_adap = i2c_get_adapter(0);
+    if (!touch_i2c_adap)
+        pr_warn("lcd_drv: cannot get I2C adapter 0\n");
+
+    {
+        u8 early_buf[8] = {0};
+        int early_ret = -1;
+
+        pr_info("lcd_drv: EARLY SM0: DATA=0x%08X D0=0x%08X D1=0x%08X "
+                "DIN=0x%08X CTL0=0x%08X CTL1=0x%08X CFG=0x%08X "
+                "POLL=0x%08X START=0x%08X STAT=0x%08X CFG2=0x%08X\n",
+                gr(SM0_DATA), gr(0x950), gr(0x954), gr(SM0_DATAIN),
+                gr(0x940), gr(SM0_CTL1), gr(SM0_CFG),
+                gr(0x918), gr(0x920), gr(SM0_STATUS), gr(0x928));
+
+        /* Try kernel i2c read — SM0 still in kernel i2c-mt7621 state */
+        if (touch_i2c_adap) {
+            early_ret = pic_i2c_read(early_buf, 8);
+            pr_info("lcd_drv: EARLY i2c_read: ret=%d "
+                    "[%02x %02x %02x %02x %02x %02x %02x %02x]\n",
+                    early_ret,
+                    early_buf[0], early_buf[1], early_buf[2], early_buf[3],
+                    early_buf[4], early_buf[5], early_buf[6], early_buf[7]);
+        }
+
+        /* D0/D1 after i2c_read — did kernel i2c write new data? */
+        pr_info("lcd_drv: AFTER-READ D0=0x%08X D1=0x%08X DIN=0x%08X\n",
+                gr(0x950), gr(0x954), gr(SM0_DATAIN));
+    }
+
     /* SX8650 touchscreen init */
     sx8650_hw_init();
 
-    /* PIC16 battery: send calibration via palmbus STOCK PROTOCOL,
-     * then read battery via Linux I2C.
-     *
-     * Stock protocol: SM0_START = total_len (ONCE), poll 0x918 bit 1,
-     * then SM0_DATAOUT for each byte. NOT SM0_START=0 per byte!
+    /* PIC16 battery init — IDA deep analysis protocol (2026-03-19)
+     * 1. SM0 RSTCTRL hardware reset
+     * 2. SM0_CTL1 = 0x90640042 (NOT 0x90644042!)
+     * 3. WAKE {0x33, 0x00, 0x00} — no calibration
+     * 4. bat_read {0x2F, 0x00, 0x01} — POLLING mode (not 0x02!)
+     * 5. Wait 500ms
+     * 6. SM0 read (SEPARATE transaction, not Combined!)
      */
     {
-        int ci;
-        u32 saved_ctl1 = gr(SM0_CTL1);
-        u32 saved_cfg = gr(SM0_CFG);
+        int ok;
+        u8 wake_cmd[3] = { 0x33, 0x00, 0x00 };
+        u8 bat_cmd[3]  = { 0x2F, 0x00, 0x01 };
 
-        pr_info("lcd_drv: PIC calibration sending (stock protocol v2)...\n");
+        pr_info("lcd_drv: PIC init v2 (IDA protocol)...\n");
 
-        /* Byte-swap helper: stock firmware swaps each int16 before sending.
-         * Our pic_calib.h has big-endian {0x00,0x04} = value 4.
-         * Stock sends as {0x04,0x00} (swapped). */
+        /* GPIOMODE trick: stock U-Boot sets 0x95A8 (I2C→GPIO mode)
+         * then stock kernel switches back to I2C mode.
+         * This GPIO→I2C transition may be required for SM0 to work with PIC.
+         * Replicate: set I2C pins to GPIO mode, delay, switch back to I2C. */
         {
-            u8 calib_buf[401];
+            u32 gmode = gr(GPIOMODE_OFF);
+            pr_info("lcd_drv: GPIOMODE before: 0x%08X\n", gmode);
 
-            /* Step 0: Wake command {0x33, 0x00, 0x01} before calibration */
-            gw(SM0_CTL1, 0x90644042); udelay(10);
-            gw(SM0_CFG, 0xFA);
-            gw(SM0_DATA, PIC_ADDR);
-            gw(SM0_START, 3);
-            gw(SM0_DATAOUT, 0x33);
-            gw(SM0_STATUS, 0);
-            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+            /* Set bit 2 = I2C→GPIO mode (like stock U-Boot 0x95A8) */
+            gw(GPIOMODE_OFF, gmode | (1 << 2));
             udelay(1000);
-            gw(SM0_DATAOUT, 0x00);
-            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+            pr_info("lcd_drv: GPIOMODE GPIO mode: 0x%08X\n", gr(GPIOMODE_OFF));
+
+            /* Switch back to I2C peripheral mode */
+            gw(GPIOMODE_OFF, gmode & ~(1 << 2));
             udelay(1000);
-            gw(SM0_DATAOUT, 0x01);
-            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
-            mdelay(5);
-
-            /* Step 1: Table 1 — byte-swap int16 pairs, keep cmd byte */
-            calib_buf[0] = pic_calib1[0]; /* cmd = 0x03, no swap */
-            for (ci = 1; ci < 401; ci += 2) {
-                calib_buf[ci]     = pic_calib1[ci + 1]; /* swap: low byte first */
-                calib_buf[ci + 1] = pic_calib1[ci];     /* then high byte */
-            }
-            gw(SM0_DATA, PIC_ADDR);
-            gw(SM0_START, 401);
-            gw(SM0_DATAOUT, calib_buf[0]);
-            gw(SM0_STATUS, 0);
-            for (ci = 1; ci < 401; ci++) {
-                { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
-                udelay(1000);
-                gw(SM0_DATAOUT, calib_buf[ci]);
-            }
-            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
-            mdelay(5);
-
-            /* Step 2: Table 2 — byte-swap */
-            calib_buf[0] = pic_calib2[0]; /* cmd = 0x2E */
-            for (ci = 1; ci < 401; ci += 2) {
-                calib_buf[ci]     = pic_calib2[ci + 1];
-                calib_buf[ci + 1] = pic_calib2[ci];
-            }
-            gw(SM0_DATA, PIC_ADDR);
-            gw(SM0_START, 401);
-            gw(SM0_DATAOUT, calib_buf[0]);
-            gw(SM0_STATUS, 0);
-            for (ci = 1; ci < 401; ci++) {
-                { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
-                udelay(1000);
-                gw(SM0_DATAOUT, calib_buf[ci]);
-            }
-            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+            pr_info("lcd_drv: GPIOMODE I2C mode: 0x%08X\n", gr(GPIOMODE_OFF));
         }
 
-        /* Restore ALL SM0 registers for Linux I2C driver */
-        gw(SM0_CTL1, saved_ctl1); udelay(10);
-        gw(SM0_CFG, saved_cfg); udelay(10);
+        /* FIRST: Read D0/D1 BEFORE any reset — kernel i2c probe may have data */
+        pr_info("lcd_drv: PRE-RESET D0=0x%08X D1=0x%08X DIN=0x%08X "
+                "CTL0=0x%08X CTL1=0x%08X POLL=0x%08X\n",
+                gr(0x950), gr(0x954), gr(SM0_DATAIN),
+                gr(0x940), gr(SM0_CTL1), gr(0x918));
 
-        pr_info("lcd_drv: PIC calibration sent (stock protocol)\n");
-
-        /* Wait for PIC to process calibration */
-        mdelay(2000);
-
-        /* Send battery read command {0x2F, 0x00, 0x02} via palmbus write */
+        /* EXPERIMENT: SM0_CFG write + NEW manual mode PIC read */
         {
-            u8 bat_cmd[3] = { 0x2F, 0x00, 0x02 };
-            u8 bat_resp[17] = {0};
+            u32 cfg_before, cfg_after;
+            u8 resp[8] = {0};
+            int i;
 
-            gw(SM0_CTL1, 0x90644042); udelay(10);
+            /* Test 1: SM0_CFG write — try MANY approaches */
+            cfg_before = gr(SM0_CFG);
+
+            /* 1a. Direct write */
             gw(SM0_CFG, 0xFA);
-            gw(SM0_DATA, PIC_ADDR);
-            gw(SM0_START, 3);
-            gw(SM0_DATAOUT, bat_cmd[0]);
-            gw(SM0_STATUS, 0);
-            for (ci = 1; ci < 3; ci++) {
-                { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
-                udelay(1000);
-                gw(SM0_DATAOUT, bat_cmd[ci]);
-            }
-            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
-            mdelay(200);
+            cfg_after = gr(SM0_CFG);
+            pr_info("lcd_drv: CFG direct: 0x%08X→0x%08X\n", cfg_before, cfg_after);
 
-            /* Read 17 bytes using NEW i2c-mt7621 register interface (6.12+)
-             * Registers at base 0x900:
-             *   SM0CTL0 = 0x940, SM0CTL1 = 0x944
-             *   SM0D0 = 0x950, SM0D1 = 0x954
-             * Protocol: START → addr+R → READ chunks → STOP
-             */
-            #define NEW_CTL0  0x940
-            #define NEW_CTL1  0x944
-            #define NEW_D0    0x950
-            #define NEW_D1    0x954
-            #define N_TRI     0x01
-            #define N_START   0x10
-            #define N_WRITE   0x20
-            #define N_STOP    0x30
-            #define N_READ_L  0x40  /* read last (NACK) */
-            #define N_READ    0x50  /* read (ACK) */
-            #define N_PGLEN(x) ((((x)-1)<<8) & 0x700)
-
-            /* Restore SM0CTL0 for normal operation */
-            gw(NEW_CTL0, saved_ctl1); udelay(10);
-
-            /* Wait idle */
-            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
-
-            /* START */
-            gw(NEW_CTL1, N_START | N_TRI);
-            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
-
-            /* Write address + R bit */
-            gw(NEW_D0, (PIC_ADDR << 1) | 1);
-            gw(NEW_CTL1, N_WRITE | N_TRI | N_PGLEN(1));
-            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
-
-            /* Read 17 bytes in 8+8+1 chunks */
+            /* 1b. With RSTCTRL reset first (like stock kernel!) */
             {
-                int rd_off = 0;
-                int remaining = 17;
-                while (remaining > 0) {
-                    int chunk = (remaining > 8) ? 8 : remaining;
-                    u32 cmd = (remaining > 8) ? N_READ : N_READ_L;
-                    u32 d0, d1;
+                u32 rst = gr(0x034);
+                gw(0x034, rst | 0x10000);  /* assert I2C reset */
+                udelay(10);
+                gw(0x034, rst & ~0x10000); /* deassert */
+                udelay(500);
+            }
+            gw(SM0_CFG, 0xFA);
+            pr_info("lcd_drv: CFG after RSTCTRL: 0x%08X\n", gr(SM0_CFG));
 
-                    gw(NEW_CTL1, cmd | N_TRI | N_PGLEN(chunk));
-                    { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+            /* 1c. Try CTL1=stock FIRST, then CFG */
+            gw(SM0_CTL1, 0x90640042);
+            udelay(10);
+            gw(SM0_CFG, 0xFA);
+            pr_info("lcd_drv: CFG after CTL1=stock: 0x%08X\n", gr(SM0_CFG));
 
-                    d0 = gr(NEW_D0);
-                    d1 = gr(NEW_D1);
-                    memcpy(&bat_resp[rd_off], &d0, chunk > 4 ? 4 : chunk);
-                    if (chunk > 4)
-                        memcpy(&bat_resp[rd_off + 4], &d1, chunk - 4);
+            /* 1d. Try CFG2=1 (auto), then CFG */
+            gw(SM0_CFG2, 1);
+            gw(SM0_CFG, 0xFA);
+            pr_info("lcd_drv: CFG after CFG2=1: 0x%08X\n", gr(SM0_CFG));
 
-                    rd_off += chunk;
-                    remaining -= chunk;
+            /* 1e. Try writing as 8-bit via iowrite8 */
+            {
+                void __iomem *p = ioremap(0x1E000900, 4);
+                if (p) {
+                    iowrite8(0xFA, p);
+                    pr_info("lcd_drv: CFG after iowrite8: 0x%08X\n", gr(SM0_CFG));
+                    iounmap(p);
                 }
             }
 
-            /* STOP */
-            gw(NEW_CTL1, N_STOP | N_TRI);
-            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
-
-            pr_info("lcd_drv: PIC raw [17]: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
-                    bat_resp[0], bat_resp[1], bat_resp[2], bat_resp[3],
-                    bat_resp[4], bat_resp[5], bat_resp[6], bat_resp[7],
-                    bat_resp[8], bat_resp[9], bat_resp[10], bat_resp[11],
-                    bat_resp[12], bat_resp[13], bat_resp[14], bat_resp[15],
-                    bat_resp[16]);
+            /* 1f. Try writing 32-bit with different values */
             {
-                /* Parse: try stock format interpretation */
-                int raw_adc = (bat_resp[0] << 8) | bat_resp[1];
-                int vref = bat_resp[2];
-                int c_pct = (signed char)bat_resp[6];
-                int f_pct = (signed char)bat_resp[7];
-                int batstat = bat_resp[10];
-                int batcount = bat_resp[11];
-                pr_info("lcd_drv: PIC parse: raw=%d(0x%03x) vref=%d C%%=%d F%%=%d BatStat=%d BatCnt=%d\n",
-                        raw_adc, raw_adc, vref, c_pct, f_pct, batstat, batcount);
+                u32 vals[] = {0xFA, 0x000000FA, 0xFA000000, 0x00FA0000, 0x0000FA00};
+                int j;
+                for (j = 0; j < 5; j++) {
+                    gw(SM0_CFG, vals[j]);
+                    if (gr(SM0_CFG) != 0)
+                        pr_info("lcd_drv: CFG=0x%08X → 0x%08X !!!\n", vals[j], gr(SM0_CFG));
+                }
             }
-            memcpy(pic_battery_raw, bat_resp, 17);
-            pic_battery_valid = (bat_resp[0] != 0xAA && bat_resp[0] != 0xFF && bat_resp[0] != 0x55);
+
+            pr_info("lcd_drv: SM0_CFG final: 0x%08X (all attempts done)\n", gr(SM0_CFG));
+
+            /* Test 2: NEW manual mode read (N_CTL1 commands)
+             * This is a different HW path than OLD auto mode.
+             * i2c-mt7621 kernel driver uses this mode. */
+            gw(SM0_CFG2, 0);  /* manual mode */
+            gw(0x940, 0x01F3800F);  /* kernel default CTL0 */
+            udelay(100);
+
+            /* Write bat_read via NEW manual mode */
+            gw(0x950, (PIC_ADDR << 1) | 0);  /* N_D0 = write addr */
+            gw(0x944, 0x11);  /* START */
+            for (i = 0; i < 10000; i++) if (gr(0x918) & 0x01) break;
+
+            gw(0x950, (PIC_ADDR << 1) | 0);
+            gw(0x944, 0x21);  /* WRITE addr */
+            for (i = 0; i < 10000; i++) if (gr(0x918) & 0x01) break;
+
+            gw(0x950, 0x2F);
+            gw(0x944, 0x21);  /* WRITE 0x2F */
+            for (i = 0; i < 10000; i++) if (gr(0x918) & 0x01) break;
+
+            gw(0x950, 0x00);
+            gw(0x944, 0x21);  /* WRITE 0x00 */
+            for (i = 0; i < 10000; i++) if (gr(0x918) & 0x01) break;
+
+            gw(0x950, 0x01);
+            gw(0x944, 0x21);  /* WRITE 0x01 */
+            for (i = 0; i < 10000; i++) if (gr(0x918) & 0x01) break;
+
+            gw(0x944, 0x31);  /* STOP */
+            for (i = 0; i < 10000; i++) if (gr(0x918) & 0x01) break;
+
+            pr_info("lcd_drv: NEW manual write bat_read done\n");
+            mdelay(500);
+
+            /* Read via NEW manual mode */
+            gw(0x944, 0x11);  /* START */
+            for (i = 0; i < 10000; i++) if (gr(0x918) & 0x01) break;
+
+            gw(0x950, (PIC_ADDR << 1) | 1);  /* read addr */
+            gw(0x944, 0x21);  /* WRITE read-addr */
+            for (i = 0; i < 10000; i++) if (gr(0x918) & 0x01) break;
+
+            for (i = 0; i < 8; i++) {
+                int p;
+                gw(0x944, (i < 7) ? 0x51 : 0x41);  /* READ / READ_LAST */
+                for (p = 0; p < 10000; p++) if (gr(0x918) & 0x01) break;
+                resp[i] = gr(0x950) & 0xFF;
+            }
+
+            gw(0x944, 0x31);  /* STOP */
+            for (i = 0; i < 10000; i++) if (gr(0x918) & 0x01) break;
+
+            pr_info("lcd_drv: NEW manual read: "
+                    "[%02x %02x %02x %02x %02x %02x %02x %02x]\n",
+                    resp[0], resp[1], resp[2], resp[3],
+                    resp[4], resp[5], resp[6], resp[7]);
+
+            gw(SM0_CFG2, 1);  /* restore auto mode */
         }
+
+        /* Step 1: SM0 RSTCTRL hardware reset (from IDA sub_411770) */
+        {
+            u32 rst = gr(0x034);
+            gw(0x034, rst | 0x10000);    /* Assert I2C reset */
+            udelay(10);
+            gw(0x034, rst & ~0x10000);   /* Deassert I2C reset */
+            udelay(500);
+        }
+
+        /* Step 2: SM0 init — CORRECT value from IDA! */
+        gw(SM0_CTL1, 0x90640042);       /* NOT 0x90644042! bit 14 must be 0 */
+        udelay(10);
+        gw(SM0_CFG2, 0x01);             /* auto mode ON (0x928 = debug/enable) */
+        gw(0x90C, 0);                   /* SM0_SLAVE = 0 */
+        pr_info("lcd_drv: SM0 reset done, CTL1=0x%08X\n", gr(SM0_CTL1));
+
+        /* Step 3: WAKE {0x33, 0x00, 0x00} — no calibration, count=0 */
+        ok = bb_pic_write(wake_cmd, 3);
+        pr_info("lcd_drv: PIC WAKE {33,00,00}: %s\n", ok ? "ACK" : "NACK");
+        mdelay(5);
+
+        /* Step 4: Empty calibration tables {0x2D} + {0x2E} — REQUIRED!
+         * Stock kernel sends these even with count=0.
+         * Without them PIC doesn't enter battery monitoring mode.
+         * With them PIC plays startup melody = enters monitoring! */
+        {
+            u8 tab1[1] = { 0x2D };
+            u8 tab2[1] = { 0x2E };
+            ok = bb_pic_write(tab1, 1);
+            pr_info("lcd_drv: PIC Table1 {2D}: %s\n", ok ? "ACK" : "NACK");
+            mdelay(5);
+            ok = bb_pic_write(tab2, 1);
+            pr_info("lcd_drv: PIC Table2 {2E}: %s\n", ok ? "ACK" : "NACK");
+            mdelay(5);
+        }
+
+        /* Step 5: Stop melody immediately */
+        {
+            u8 buz_off[3] = { 0x34, 0x00, 0x00 };
+            ok = bb_pic_write(buz_off, 3);
+            pr_info("lcd_drv: PIC buzzer off: %s\n", ok ? "ACK" : "NACK");
+            mdelay(5);
+        }
+
+        /* Step 6: bat_read via bit-bang */
+        ok = bb_pic_write(bat_cmd, 3);
+        pr_info("lcd_drv: PIC bat_read {2F,00,01} bb: %s\n", ok ? "ACK" : "NACK");
+        mdelay(500);
+
+        /* Step 7: SM0 auto mode WRITE bat_read (THIS triggers live ADC!)
+         * v0.28 proved: SM0 auto write = live ADC (591/423).
+         * bit-bang write = ACK but static ADC.
+         * SM0 auto write has different I2C timing that PIC needs. */
+        {
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 3);
+            gw(SM0_DATAOUT, 0x2F);
+            gw(SM0_STATUS, 0);  /* WRITE mode */
+            { int p; for (p = 0; p < 100000; p++) { if (gr(0x918) & 0x02) break; } }
+            udelay(5000);
+            gw(SM0_DATAOUT, 0x00);
+            { int p; for (p = 0; p < 100000; p++) { if (gr(0x918) & 0x02) break; } }
+            udelay(5000);
+            gw(SM0_DATAOUT, 0x01);
+            { int p; for (p = 0; p < 100000; p++) { if (gr(0x918) & 0x01) break; } }
+            pr_info("lcd_drv: PIC bat_read SM0 auto write: POLLSTA=0x%02X\n", gr(0x918));
+        }
+        mdelay(500);
+
+        /* Step 8: SM0 auto mode READ */
+        pr_info("lcd_drv: PIC SM0 read after bat_read...\n");
+        pic_read_battery_palmbus();
     }
 
     /* Start render thread */
     render_thread = kthread_run(render_fn, NULL, "lcd_render");
 
-    /* Start touch thread */
+    /* Start touch+battery thread (touch reads disabled, battery via i2c_transfer) */
     touch_thread = kthread_run(touch_fn, NULL, "lcd_touch");
+    pr_info("lcd_drv: touch thread started (touch palmbus DISABLED)\n");
 
-    pr_info("lcd_drv: /dev/lcd ready (fb=%dx%d, %d bytes, fps=%d)\n",
-            LCD_W, LCD_H, FB_SIZE, target_fps);
+    pr_info("lcd_drv v%s: /dev/lcd ready (fb=%dx%d, %d bytes, fps=%d)\n",
+            LCD_DRV_VERSION, LCD_W, LCD_H, FB_SIZE, target_fps);
     return 0;
 }
 
