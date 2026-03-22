@@ -15,15 +15,7 @@
 
 let fs = require("fs");
 
-// PID lock — kill previous instance
-{
-    let old_pid = +trim(fs.readfile("/tmp/lcd_ui.pid") ?? "0");
-    let my_pid = +trim(fs.readfile("/proc/self/stat") ?? "0");
-    if (old_pid > 0 && old_pid != my_pid)
-        system(sprintf("kill -9 %d 2>/dev/null", old_pid));
-    if (my_pid > 0)
-        fs.writefile("/tmp/lcd_ui.pid", "" + my_pid + "\n");
-}
+// No PID lock needed — procd manages single instance (no auto-restart loop below)
 
 // Optional modules — graceful degrade
 let ubus_mod, uci_mod, uloop_mod;
@@ -403,22 +395,25 @@ function draw_dashboard() {
 
     // VPN status bar
     let vpn = d?.vpn?.active;
+    let vtype = d?.vpn?.type ?? "";
     let vbg = vpn ? "#002000" : "#200000";
     lcd_rect(0, 20, LCD_W, 16, vbg);
-    lcd_text(4 + ox, 22 + oy, vpn ? "VPN OK" : "VPN DOWN",
-             vpn ? C.green : C.red, vbg, 2);
+    let vpn_label = vpn ? (vtype + " ON") : "VPN OFF";
+    lcd_text(4 + ox, 22 + oy, vpn_label, vpn ? C.green : C.red, vbg, 2);
     let ping = int(+(d?.vpn?.ping_ms ?? d?.ping?.google_ms ?? 0));
-    lcd_text(200 + ox, 22 + oy, sprintf("%dms", ping), C.white, vbg, 2);
+    lcd_text(160 + ox, 22 + oy, sprintf("%dms", ping), C.white, vbg, 2);
+    let eip = d?.vpn?.external_ip;
+    if (vpn && eip)
+        lcd_text(220 + ox, 22 + oy, eip, C.accent, vbg, 1);
 
     // LTE info
     let oper = d?.lte?.operator ?? "?";
     let lip  = d?.lte?.ip ?? "";
     lcd_text(4 + ox, 42 + oy, sprintf("%s %s", oper, lip), C.cyan, bg, 1);
 
-    // External IP
-    let eip = d?.vpn?.external_ip;
-    if (eip && eip != "")
-        lcd_text(4 + ox, 55 + oy, "Exit:" + eip, C.accent, bg, 1);
+    // External IP (eip already defined in VPN bar above)
+    if (!vpn && eip && eip != "")
+        lcd_text(4 + ox, 55 + oy, "IP:" + eip, C.gray, bg, 1);
 
     // WiFi clients
     let y = 72 + oy;
@@ -430,10 +425,12 @@ function draw_dashboard() {
     if (type(clients) == "array") {
         for (let cl in clients) {
             if (y > 208) break;
-            let name = cl.name ?? cl.mac ?? "?";
+            let name = cl.name ?? "?";
+            let ip = cl.ip ?? "";
             let sig = int(+(cl.signal ?? 0));
+            let band = cl.band ?? "";
             lcd_text(4 + ox, y,
-                sprintf("%s %ddB rx:%s", name, sig, fmt_bytes(cl.rx_bytes)),
+                sprintf("%s %s %ddB %s", name, ip, sig, band),
                 C.gray, bg, 1);
             y += 12;
         }
@@ -529,35 +526,54 @@ function draw_menu() {
 //  DRAWING: SUB-PAGES
 // =============================================
 
+// VPN page — large buttons like main menu (2 columns)
+let VPN_TYPES = ["WG", "OVPN", "L2TP", ""];  // match data_collector vpn.type
+
 function draw_vpn_page() {
     let d = st.data;
     let vpn = d?.vpn?.active;
+    let vtype = d?.vpn?.type ?? "";
     lcd_clear(C.bg);
     draw_header("VPN");
 
-    let y = 28;
-    lcd_text(4, y, "WireGuard:", C.cyan, C.bg, 2);
-    lcd_text(130, y, vpn ? "Active" : "OFF", vpn ? C.green : C.red, C.bg, 2);
-    y += 24;
-
+    // Status bar
+    let eip = d?.vpn?.external_ip ?? "";
+    let ping_v = int(+(d?.vpn?.ping_ms ?? 0));
     if (vpn) {
-        let vpn_ping = int(+(d?.vpn?.ping_ms ?? 0));
-        lcd_text(4, y, sprintf("Ping: %dms", vpn_ping), C.white, C.bg, 2);
-        y += 20;
-        let eip = d?.vpn?.external_ip;
-        if (eip) {
-            lcd_text(4, y, "Exit: " + eip, C.accent, C.bg, 1);
-            y += 14;
-        }
+        let vbg = "#002000";
+        lcd_rect(0, 20, LCD_W, 16, vbg);
+        lcd_text(4, 22, vtype + " ON", C.green, vbg, 2);
+        lcd_text(120, 22, sprintf("%dms", ping_v), C.white, vbg, 2);
+        lcd_text(200, 24, eip, C.accent, vbg, 1);
+    } else {
+        lcd_rect(0, 20, LCD_W, 16, "#200000");
+        lcd_text(4, 22, "VPN OFF — Direct", C.red, "#200000", 2);
     }
 
-    y += 10;
-    // Action buttons
-    lcd_rect(4, y, 150, 30, vpn ? "#0841" : C.btn);
-    lcd_text(30, y + 6, "WG ON", vpn ? C.green : C.white, vpn ? "#0841" : C.btn, 2);
+    // 4 big buttons (2x2 grid) — same layout as main menu
+    let vpns = [
+        { name: "WireGuard", key: "WG",   color: C.cyan },
+        { name: "OpenVPN",   key: "OVPN", color: C.green },
+        { name: "L2TP",      key: "L2TP", color: C.yellow },
+        { name: "VPN OFF",   key: "",     color: C.red },
+    ];
 
-    lcd_rect(164, y, 150, 30, !vpn ? "#400000" : C.btn);
-    lcd_text(190, y + 6, "WG OFF", !vpn ? C.red : C.white, !vpn ? "#400000" : C.btn, 2);
+    for (let i = 0; i < 4; i++) {
+        let b = btn_pos(i + 1);  // reuse main menu layout
+        let v = vpns[i];
+        let active = vpn && vtype == v.key;
+        let bg = active ? "#0841" : (i == 3 ? "#300000" : C.btn);
+
+        lcd_rect(b.x, b.y, b.w, b.h, bg);
+        lcd_text(b.x + 8, b.y + 8, v.name, v.color, bg, 2);
+
+        if (active) {
+            lcd_text(b.x + 8, b.y + 32, "ACTIVE", C.green, bg, 2);
+            lcd_text(b.x + 90, b.y + 34, sprintf("%dms", ping_v), C.white, bg, 1);
+        } else if (i == 3 && !vpn) {
+            lcd_text(b.x + 8, b.y + 32, "Direct", C.gray, bg, 2);
+        }
+    }
 
     draw_back();
     lcd_flush();
@@ -594,15 +610,22 @@ function draw_wifi_page() {
 
     if (type(clients) == "array") {
         for (let cl in clients) {
-            if (y > BACK_Y - 14) break;
+            if (y > BACK_Y - 24) break;
             let name = cl.name ?? "unknown";
+            let ip = cl.ip ?? "";
             let sig = int(+(cl.signal ?? 0));
+            let band = cl.band ?? "";
+            let sig_c = sig > -50 ? C.green : (sig > -70 ? C.yellow : C.red);
+            // Line 1: name + band
+            lcd_text(4, y, sprintf("%s %s", band, name), C.white, C.bg, 1);
+            y += 10;
+            // Line 2: IP + signal + traffic
             lcd_text(4, y,
-                sprintf("%s %ddB %s/%s",
-                    name, sig,
+                sprintf("%s %ddB R:%s T:%s",
+                    ip, sig,
                     fmt_bytes(cl.rx_bytes ?? 0),
                     fmt_bytes(cl.tx_bytes ?? 0)),
-                C.gray, C.bg, 1);
+                sig_c, C.bg, 1);
             y += 12;
         }
     }
@@ -1075,40 +1098,41 @@ function handle_touch(tx, ty) {
 
     // VPN page buttons
     if (st.page == "vpn") {
-        if (ty >= 80 && ty <= 120) {
-            if (tx < 160) {
-                // WG ON — hotplug script handles route
-                flash_btn(4, 82, 150, 30, "WG ON");
-                system("usleep 200000");
-                action_splash("VPN", "Connecting...", C.green);
-                run_script("wg_on.sh");
+        let vpn_names = ["WireGuard", "OpenVPN", "L2TP", "VPN OFF"];
+        let vpn_scripts = ["vpn_wg_on.sh", "vpn_ovpn_on.sh", "vpn_l2tp_on.sh", "vpn_off.sh"];
+        let vpn_colors = [C.cyan, C.green, C.yellow, C.red];
 
-                // Wait for hotplug (10s handshake check + route)
-                for (let step = 0; step < 12; step++) {
-                    system("sleep 1");
-                    lcd_rect(20, 140, 280, 20, C.bg);
-                    lcd_text(20, 140, sprintf("Handshake... %ds", step + 1), C.gray, C.bg, 2);
-                    lcd_flush();
+        for (let i = 0; i < 4; i++) {
+            let b = btn_pos(i + 1);
+            if (in_rect(tx, ty, b.x, b.y, b.w, b.h)) {
+                flash_btn(b.x, b.y, b.w, b.h, vpn_names[i]);
+
+                if (i == 3) {
+                    action_splash("VPN", "Disconnecting...", C.red);
+                    run_script("vpn_off.sh");
+                    system("sleep 3");
+                    refresh_data();
+                    toast("VPN OFF", C.red, "#200000", 2);
+                } else {
+                    action_splash("VPN", vpn_names[i] + "...", vpn_colors[i]);
+                    run_script("vpn_off.sh");
+                    system("sleep 2");
+                    run_script(vpn_scripts[i]);
+
+                    for (let step = 0; step < 10; step++) {
+                        system("sleep 1");
+                        lcd_rect(20, 140, 280, 20, C.bg);
+                        lcd_text(20, 140, sprintf("%s... %ds", vpn_names[i], step + 1), C.gray, C.bg, 2);
+                        lcd_flush();
+                    }
+                    refresh_data();
+                    let ok = st.data?.vpn?.active;
+                    toast(ok ? vpn_names[i] + " Connected" : vpn_names[i] + ": failed",
+                          ok ? C.green : C.red,
+                          ok ? "#002000" : "#200000", 2);
                 }
-
-                refresh_data();
                 draw_vpn_page();
-                let vpn = st.data?.vpn?.active;
-                toast(vpn ? "VPN Connected" : "VPN: no handshake",
-                      vpn ? C.green : C.red,
-                      vpn ? "#002000" : "#200000", 2);
-                draw_vpn_page();
-            } else {
-                // WG OFF — flash + action
-                flash_btn(164, 82, 150, 30, "WG OFF");
-                system("usleep 200000");
-                action_splash("VPN", "Disconnecting...", C.red);
-                run_script("wg_off.sh");
-                system("sleep 2");
-                refresh_data();
-                draw_vpn_page();
-                toast("VPN Disconnected", C.red, "#200000", 2);
-                draw_vpn_page();
+                return;
             }
         }
     }
@@ -1270,26 +1294,5 @@ function main() {
     }
 }
 
-// =============================================
-//  AUTO-RESTART ON CRASH
-// =============================================
-
-while (true) {
-    try {
-        main();
-    } catch (err) {
-        warn("lcd_ui: CRASH: " + err + "\n");
-        try {
-            lcd_clear(C.red);
-            lcd_text(10, 40, "UI CRASH", C.white, C.red, 3);
-            lcd_text(10, 80, substr("" + err, 0, 45), C.white, C.red, 1);
-            lcd_text(10, 110, "Restart in 3s...", C.yellow, C.red, 2);
-            lcd_flush();
-        } catch(e2) {}
-        system("sleep 3");
-        // Reset state
-        st.page = "dashboard";
-        st.mpg = 1;
-        st.screen = "active";
-    }
-}
+// Single run — procd handles respawn on crash
+main();

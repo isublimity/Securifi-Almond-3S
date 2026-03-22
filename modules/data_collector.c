@@ -186,11 +186,12 @@ static int get_wifi_clients(char *json_array, int bufsz) {
 
     /* Parse iw station dump for each phy */
     for (int phy = 0; phy <= 1; phy++) {
-        char cmd[128];
+        char cmd[256];
         snprintf(cmd, sizeof(cmd),
                  "iw dev phy%d-ap0 station dump 2>/dev/null | "
-                 "awk '/Station/{mac=$2} /signal:/{sig=$2} "
-                 "/rx bytes/{rx=$3} /tx bytes/{tx=$3} "
+                 "awk '/Station/{if(mac)print mac,sig,rx,tx;"
+                 "mac=$2;sig=0;rx=0;tx=0} /signal:/{sig=$2} "
+                 "/rx bytes:/{rx=$3} /tx bytes:/{tx=$3} "
                  "END{if(mac)print mac,sig,rx,tx}'",
                  phy);
 
@@ -201,19 +202,26 @@ static int get_wifi_clients(char *json_array, int bufsz) {
                 int sig = 0;
                 long long rx = 0, tx = 0;
                 if (sscanf(line, "%19s %d %lld %lld", mac, &sig, &rx, &tx) >= 2) {
-                    /* Lookup hostname from DHCP leases */
+                    /* Lookup hostname + IP from DHCP leases */
                     char name[64] = "unknown";
+                    char ip[20] = "";
                     char lcmd[128];
                     snprintf(lcmd, sizeof(lcmd),
                              "grep -i '%s' /tmp/dhcp.leases | awk '{print $4}'", mac);
                     run_cmd(lcmd, name, sizeof(name));
                     if (name[0] == 0 || name[0] == '*') strcpy(name, "unknown");
+                    snprintf(lcmd, sizeof(lcmd),
+                             "grep -i '%s' /tmp/dhcp.leases | awk '{print $3}'", mac);
+                    run_cmd(lcmd, ip, sizeof(ip));
+
+                    char *band = (phy == 0) ? "5G" : "2G";
 
                     if (n > 2) n += snprintf(json_array + n, bufsz - n, ",");
                     n += snprintf(json_array + n, bufsz - n,
-                                 "{\"mac\":\"%s\",\"name\":\"%s\","
-                                 "\"signal\":%d,\"rx_bytes\":%lld,\"tx_bytes\":%lld}",
-                                 mac, name, sig, rx, tx);
+                                 "{\"mac\":\"%s\",\"name\":\"%s\",\"ip\":\"%s\","
+                                 "\"band\":\"%s\",\"signal\":%d,"
+                                 "\"rx_bytes\":%lld,\"tx_bytes\":%lld}",
+                                 mac, name, ip, band, sig, rx, tx);
                 }
                 line = strtok(NULL, "\n");
             }
@@ -224,28 +232,57 @@ static int get_wifi_clients(char *json_array, int bufsz) {
     return n;
 }
 
-/* Check VPN status */
-static void get_vpn_info(int *active, int *ping_ms, char *ext_ip, int ip_sz) {
+/* Check VPN status — WireGuard, OpenVPN, L2TP */
+static void get_vpn_info(int *active, int *ping_ms, char *ext_ip, int ip_sz,
+                         char *vpn_type, int type_sz) {
     char buf[128];
     *active = 0; *ping_ms = 0;
     ext_ip[0] = 0;
+    vpn_type[0] = 0;
 
-    /* Check WG interface */
+    /* Check WireGuard */
     if (run_cmd("wg show wg0 latest-handshake 2>/dev/null | awk '{print $2}'",
                 buf, sizeof(buf)) == 0 && buf[0]) {
         long hs = atol(buf);
         long now = time(NULL);
-        *active = (now - hs < 180) ? 1 : 0; /* handshake within 3 min */
+        if (now - hs < 180) {
+            *active = 1;
+            strncpy(vpn_type, "WG", type_sz - 1);
+        }
+    }
+
+    /* Check OpenVPN (tun0 interface) */
+    if (!*active) {
+        if (run_cmd("ip link show tun0 2>/dev/null | grep -c UP",
+                    buf, sizeof(buf)) == 0 && buf[0] == '1') {
+            *active = 1;
+            strncpy(vpn_type, "OVPN", type_sz - 1);
+        }
+    }
+
+    /* Check L2TP (l2tp interface) */
+    if (!*active) {
+        if (run_cmd("ip link show l2tp-l2tp_tina 2>/dev/null | grep -c UP",
+                    buf, sizeof(buf)) == 0 && buf[0] == '1') {
+            *active = 1;
+            strncpy(vpn_type, "L2TP", type_sz - 1);
+        }
     }
 
     /* External IP */
     run_cmd("curl -s --max-time 3 ifconfig.me 2>/dev/null", ext_ip, ip_sz);
 
-    /* Ping through VPN */
-    if (run_cmd("ping -c1 -W2 -I wg0 8.8.8.8 2>/dev/null | "
-                "grep 'time=' | sed 's/.*time=//;s/ .*//'",
-                buf, sizeof(buf)) == 0 && buf[0]) {
-        *ping_ms = (int)atof(buf);
+    /* Ping through VPN tunnel */
+    if (*active) {
+        char ping_cmd[128];
+        const char *dev = strcmp(vpn_type, "WG") == 0 ? "wg0" :
+                          strcmp(vpn_type, "OVPN") == 0 ? "tun0" : "l2tp-l2tp_tina";
+        snprintf(ping_cmd, sizeof(ping_cmd),
+                 "ping -c1 -W2 -I %s 8.8.8.8 2>/dev/null | "
+                 "grep 'time=' | sed 's/.*time=//;s/ .*//'", dev);
+        if (run_cmd(ping_cmd, buf, sizeof(buf)) == 0 && buf[0]) {
+            *ping_ms = (int)atof(buf);
+        }
     }
 }
 
@@ -271,13 +308,15 @@ int main(void) {
         struct lte_info li;
         int vpn_active = 0, vpn_ping = 0;
         char ext_ip[32] = "";
+        char vpn_type[8] = "";
         char wifi_json[2048] = "[]";
         struct sysinfo si;
         char lte_ip[32] = "";
 
         /* Collect data */
         get_lte_info_ext(&li);
-        get_vpn_info(&vpn_active, &vpn_ping, ext_ip, sizeof(ext_ip));
+        get_vpn_info(&vpn_active, &vpn_ping, ext_ip, sizeof(ext_ip),
+                     vpn_type, sizeof(vpn_type));
         get_wifi_clients(wifi_json, sizeof(wifi_json));
         sysinfo(&si);
 
@@ -301,7 +340,7 @@ int main(void) {
                 "\"sinr\": %d, \"rssi\": %d, \"pci\": %d, "
                 "\"band\": \"%s\", \"mode\": \"%s\", "
                 "\"operator\": \"%s\", \"ip\": \"%s\"},\n"
-                "  \"vpn\": {\"active\": %s, \"ping_ms\": %d, \"external_ip\": \"%s\"},\n"
+                "  \"vpn\": {\"active\": %s, \"type\": \"%s\", \"ping_ms\": %d, \"external_ip\": \"%s\"},\n"
                 "  \"wifi\": {\"clients\": %s},\n"
                 "  \"ping\": {\"google_ms\": %d},\n"
                 "  \"uptime\": %ld,\n"
@@ -313,7 +352,7 @@ int main(void) {
                 li.sinr, li.rssi, li.pci,
                 li.band, li.mode,
                 li.oper, lte_ip,
-                vpn_active ? "true" : "false", vpn_ping, ext_ip,
+                vpn_active ? "true" : "false", vpn_type, vpn_ping, ext_ip,
                 wifi_json,
                 google_ping,
                 si.uptime,
