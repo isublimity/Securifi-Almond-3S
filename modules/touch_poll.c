@@ -198,6 +198,17 @@ int main(int argc, char **argv)
         return ret < 0 ? 1 : 0;
     }
 
+    /* touch_poll version — read lcd_drv version */
+    if (argc >= 2 && argv[1][0] == 'v') {
+        char ver[64] = {0};
+        if (ioctl(fd, 7, ver) == 0)
+            printf("%s\n", ver);
+        else
+            printf("unknown\n");
+        close(fd);
+        return 0;
+    }
+
     /* touch_poll daemon — background poller */
     if (argc >= 2 && argv[1][0] == 'd') {
         return daemon_mode(fd);

@@ -1,92 +1,93 @@
-# PIC16 Battery -- исследование и эксперименты
+# PIC16 Battery — Research & Experiments
 
-## Что такое PIC16LF1509
+## PIC16LF1509
 
-Securifi Almond 3S содержит микроконтроллер **PIC16LF1509** (Microchip), который управляет:
-- **Питанием роутера** (кнопка включения, автостарт)
-- **Мониторингом батареи** (2S Li-Ion, зарядка через BQ24133)
-- **Бипером** (умеет играть мелодии, не просто ON/OFF)
-- **Сторожевым таймером** (watchdog)
+Securifi Almond 3S contains **PIC16LF1509** (Microchip) managing:
+- **Power control** (power button, auto-start)
+- **Battery monitoring** (2S Li-Ion, BQ24133 charger)
+- **Buzzer** (plays melodies, not just ON/OFF)
+- **Watchdog**
 
-PIC подключён к MT7621 через **I2C bus 0** (GPIO 3, 4), адрес **0x2A** (write) / **0x55** (read).
+I2C bus 0 (GPIO 3, 4), address **0x2A** (write) / **0x55** (read).
 
-## Текущий статус
+## Current Status (2026-03-22)
 
-### Что РАБОТАЕТ
+### What WORKS
 
-- **PIC write** -- команды доходят до PIC, ACK на все. Бипер играет мелодию после
-  инициализации `{0x2D} + {0x2E} + {0x2F, 0x00, 0x01}`.
-- **LCD дисплей** -- ILI9341 полностью работает (lcd_drv.ko, framebuffer + userspace renderer)
-- **Тачскрин SX8650** -- координаты X/Y читаются через palmbus I2C
+- **PIC init via SM0 auto mode** — {0x41} init + calibration tables + bat_read {0x2F,0,2}. Works on kernel 6.12.74 in lcd_drv v1.0.
+- **PIC polling via NEW SM0 registers** (0x944/0x950/0x954) — stable read every 10s in touch thread. Returns `55 00 00 00 39 3e 40 e6`. Does NOT break MT7530 LAN.
+- **Buzzer** — {0x34, state, 0x00}. PIC plays melodies after init.
+- **SM0 auto mode WRITE** — calibration tables (2×401 bytes) sent successfully at boot. PIC ACKs all.
 
-### Что НЕ РАБОТАЕТ
+### What DOES NOT WORK
 
-**PIC battery read на OpenWrt (ядра 6.6.127 и 6.12.74)** -- все методы чтения
-возвращают bus noise (0xAA и его битовые сдвиги).
+- **Live ADC update** — data is STATIC after init. `55 00 00 00 39 3e 40 e6` never changes regardless of battery charge state.
+- Unclear what stock firmware does differently to get live ADC updates.
 
-На **стоковом ядре 3.10.14** чтение батареи РАБОТАЛО: ADC=0x2CF, живые данные
-обновлялись в реальном времени.
+### Key Correction (2026-03-22)
 
-## Проверенные методы чтения
+**Previous conclusion was WRONG**: "SM0 auto mode is broken on MT7621 silicon" — FALSE.
+SM0 auto mode WORKS for PIC write (calibration, bat_read commands). The problem was `gpio_request()` in modified lcd_drv.c causing IRQ #23 crash, NOT SM0 operations.
 
-| Метод | Результат | Подробности |
-|-------|-----------|-------------|
-| SM0 auto mode (старые регистры 0x900-0x920) | Bus noise / test mode PIC | SM0_CFG read-only на MT7621 eco:3 |
-| NEW SM0 manual mode (0x944/0x950/0x954) | `aa 54 a8 50 a0 40 80 00` | PIC ACKает адрес, но НЕ загружает данные |
-| Bit-bang GPIO (sysfs gpio 515/516) | 1-bit shifted echo | PIC не отвечает данными |
-| Kernel i2c_transfer | NACK | Не работает |
-| GPIOMODE toggle (0x9580 vs 0x95A8) | Без эффекта | Проверено |
+The stable lcd_drv.ko (md5 8cf0746e, from firmware build) uses SM0 auto mode for PIC init + NEW SM0 manual mode for polling — both work fine on kernel 6.12.74 with correct DTS.
 
-## Ключевые находки
+## Init Sequence (lcd_drv v1.0)
 
-1. **SM0_CFG (0x900) -- READ-ONLY** на MT7621 revision eco:3. Не записывается ни из
-   userspace, ни из kernel. Это silicon-level limitation, не баг драйвера.
+```
+1. {0x41}                  — PIC init (buzzer plays)
+2. {0x34, 0x00, 0x00}      — buzzer OFF
+3. {0x33, 0x00, 0x01}      — WAKE
+4. Calibration table 1 (401 bytes, cmd 0x03, byte-swapped int16)
+5. Calibration table 2 (401 bytes, cmd 0x2E, byte-swapped int16)
+6. {0x2F, 0x00, 0x02}      — bat_read command
+7. Wait 200ms
+8. NEW SM0 read 17 bytes    — initial battery data
+9. Touch thread: poll every 10s via NEW SM0 read
+```
 
-2. **SM0 auto mode сломан на hardware уровне** -- подтверждено на ОБОИХ ядрах (6.6.127
-   и 6.12.74). Любое обращение через auto mode может перевести PIC в test mode
-   (паттерн `aa 54 a8`), сброс только физическим отключением батареи.
+## Open Question
 
-3. **PIC I2C slave firmware различает SM0 auto mode и manual mode**. Данные PIC
-   загружает в SSPBUF ТОЛЬКО при auto mode (специфичный паттерн SM0 hardware).
-   Manual mode -- ACK на адрес, но данные не отправляются.
+Stock firmware (kernel 3.10.14) had live ADC updates. Our init sends the same commands (confirmed by IDA reverse engineering) but data stays static. Possible causes:
+- Different PIC firmware state (factory vs our init sequence)
+- Timing/frequency of bat_read command
+- Missing periodic bat_read re-trigger
+- Clock stretching behavior difference between kernels
 
-4. **Разница между стоковым ядром (3.10) и OpenWrt (6.6/6.12) НЕ найдена**.
-   Дампы регистров SM0 (TFTP boot стокового ядра) сравнены -- инициализация SM0
-   идентична. Проблема на уровне silicon revision или тайминга SM0 hardware.
+## Files
 
-5. **"ADC значения" 423 и 591 = артефакт bit-shift** от 0xAA (echo адреса PIC).
-   Не реальные данные батареи.
+### Analysis
+- `ANALYSIS_BUZZER.md` — buzzer protocol analysis
+- `ANALYSIS_FINAL.md` — buzzer vs battery comparison
+- `BATTERY_STATUS.md` — full PIC status (OUTDATED conclusions about SM0)
+- `PROGRESS1.md` — breakthrough log (buzzer worked!)
 
-## Что нужно для финального диагноза
+### Reverse Engineering (stock kernel 3.10.14)
+- `IDA_DEEP_ANALYSIS.md` — deep analysis of I2C functions
+- `IDA_DATA_TRACE.md` — SM0 data tracing
+- `IDA_READ_PROTOCOL.md` — PIC read protocol
+- `IDA_BUZZER.md` — buzzer control analysis
+- `PIC_FUNCTIONS_IDA.md` — all PIC functions decompiled
 
-- **Осциллограф** на линиях SDA/SCL во время чтения стоковым ядром vs OpenWrt --
-  увидеть разницу в тайминге, clock stretching, ACK/NACK
-- Возможно: сравнение SM0 hardware behavior на уровне отдельных тактов
+### Kernel Comparison
+- `KERNEL_DIFF.md` — SM0 register diff (stock vs OpenWrt)
+- `GPIOMODE_DISCOVERY.md` — GPIOMODE differences
+- `STOCK_DUMP_20mart.md` — register dumps from stock kernel TFTP boot
+- `TFTP_STOCK_BOOT.md` — how to boot stock kernel via TFTP
+- `stock_dumps/` — JSON dumps (PIC state, calibration, dmesg)
 
-## Содержимое папки
+### Experiment Logs
+- `STEPS_BATTERY.md` — step-by-step experiment log
+- `final_20mart.md`, `final_20mart_v2.md` — March 20 research notes
+- `pic_emu.py` — SM0 I2C protocol emulator
 
-### Документы анализа
-- `BATTERY_STATUS.md` -- полный статус PIC battery (все методы, результаты)
-- `PROGRESS1.md` -- лог прорыва с бипером (мелодия заиграла)
-- `STEPS_BATTERY.md` -- пошаговый лог всех экспериментов
-- `ANALYSIS_BUZZER.md` -- анализ бипера PIC
-- `ANALYSIS_FINAL.md` -- финальный анализ: bus noise vs реальные данные
+### Tools (ideas/pic_tools/)
+- `pic_test.c`, `pic_final.c`, `pic_newmode.c` — test utilities
+- `pic_buzzer.c` — buzzer test
+- `pic_bruteforce.c` — command scan
+- `pic_calib_*.c` — calibration experiments
 
-### Реверс-инжиниринг стокового ядра
-- `IDA_DEEP_ANALYSIS.md` -- глубокий анализ I2C функций стокового ядра
-- `IDA_DATA_TRACE.md` -- трассировка данных SM0
-- `IDA_READ_PROTOCOL.md` -- протокол чтения PIC из стокового ядра
-- `IDA_BUZZER.md` -- анализ управления бипером
-- `PIC_FUNCTIONS_IDA.md` -- все PIC-функции из стокового ядра
-
-### Сравнение ядер и дампы
-- `KERNEL_DIFF.md` -- сравнение регистров SM0 между стоковым и OpenWrt ядром
-- `GPIOMODE_DISCOVERY.md` -- различия GPIOMODE (0x9580 vs 0x95A8)
-- `STOCK_DUMP_20mart.md` -- дампы регистров при TFTP boot стокового ядра
-- `TFTP_STOCK_BOOT.md` -- инструкция загрузки стокового ядра через TFTP
-- `stock_dumps/` -- JSON-дампы состояния PIC, калибровки, dmesg со стокового ядра
-
-### Рабочие заметки
-- `final_20mart.md` -- заметки 20 марта (полный день экспериментов)
-- `final_20mart_v2.md` -- продолжение заметок
-- `pic_emu.py` -- эмулятор SM0 I2C для тестирования протоколов
+### Moved Here
+- `battery_todo.md`, `BATTERY.md` — old battery research TODO
+- `TODO_modem.md` — old modem TODO (Quectel EC21-E, replaced by Fibocom)
+- `TODO_PICkit.md` — PICkit programming options
+- `touch_plan.md` — touch + LAN coexistence plan (SOLVED: no gpio_request)

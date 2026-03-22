@@ -25,6 +25,10 @@
 #include "pic_calib.h"
 
 #define DEVICE_NAME  "lcd"
+#define LCD_DRV_VERSION "1.0"
+#ifndef LCD_DRV_BUILD
+#define LCD_DRV_BUILD "unknown"
+#endif
 #define LCD_W        320
 #define LCD_H        240
 #define FB_SIZE      (LCD_W * LCD_H * 2)  /* RGB565 */
@@ -1081,6 +1085,15 @@ static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
         }
         return 0;
     }
+    if (cmd == 7) {
+        /* Version info: copy "v1.0 Mar 22 2026 18:00:00" to userspace */
+        char ver[64];
+        int len;
+        len = snprintf(ver, sizeof(ver), "v%s %s", LCD_DRV_VERSION, LCD_DRV_BUILD);
+        if (copy_to_user((void __user *)arg, ver, len + 1))
+            return -EFAULT;
+        return 0;
+    }
     return -ENOTTY;
 }
 
@@ -1356,8 +1369,8 @@ static int __init lcd_drv_init(void)
     /* Start touch thread */
     touch_thread = kthread_run(touch_fn, NULL, "lcd_touch");
 
-    pr_info("lcd_drv: /dev/lcd ready (fb=%dx%d, %d bytes, fps=%d)\n",
-            LCD_W, LCD_H, FB_SIZE, target_fps);
+    pr_info("lcd_drv v%s (%s): /dev/lcd ready (fb=%dx%d, %d bytes, fps=%d)\n",
+            LCD_DRV_VERSION, LCD_DRV_BUILD, LCD_W, LCD_H, FB_SIZE, target_fps);
     return 0;
 }
 

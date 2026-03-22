@@ -673,8 +673,18 @@ function draw_info_page() {
             lcd_text(4, y, sprintf("Kernel: %s", board?.kernel ?? "?"), C.dim, C.bg, 1);
             y += 10;
             lcd_text(4, y, sprintf("OpenWrt: %s", board?.release?.version ?? "?"), C.dim, C.bg, 1);
+            y += 12;
         }
     }
+
+    // lcd_drv version (via touch_poll version helper)
+    let drv_ver = "?";
+    let p = fs.popen("touch_poll version 2>/dev/null", "r");
+    if (p) {
+        drv_ver = trim(p.read("all") ?? "?");
+        p.close();
+    }
+    lcd_text(4, y, "lcd_drv: " + drv_ver, C.dim, C.bg, 1);
 
     draw_back();
     lcd_flush();
