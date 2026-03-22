@@ -86,19 +86,15 @@ static void lcd_gpio_request_all(void)
     int i, ret;
     lcd_gpios_requested = 0;
     for (i = 0; i < LCD_GPIO_COUNT; i++) {
-        int gpio_nr = GPIO_BASE_NR + lcd_gpio_pins[i];
-        ret = gpio_request(gpio_nr, "lcd_drv");
+        ret = gpio_request(GPIO_BASE_NR + lcd_gpio_pins[i], "lcd_drv");
         if (ret) {
             pr_warn("lcd_drv: gpio_request(%d) failed: %d\n",
                     lcd_gpio_pins[i], ret);
         } else {
-            /* Set as output HIGH — kernel GPIO driver will track this state
-             * and NOT reset to input during read-modify-write */
-            gpio_direction_output(gpio_nr, 1);
             lcd_gpios_requested++;
         }
     }
-    pr_info("lcd_drv: requested %d/%d GPIO pins (all output)\n",
+    pr_info("lcd_drv: requested %d/%d GPIO pins\n",
             lcd_gpios_requested, (int)LCD_GPIO_COUNT);
 }
 
@@ -295,9 +291,8 @@ static void lcd_flush_fb(void)
     u16 *pixels = (u16 *)framebuffer;
     int i;
 
-    /* DO NOT re-read base_dir here!
-     * Kernel GPIO driver may have reset LCD pins to input.
-     * Use the base_dir saved at init time. */
+    /* Refresh non-LCD DIR bits in case other drivers changed them */
+    base_dir = gr(GPIO_DIR_OFF) & ~LCD_PIN_MASK;
 
     lcd_cmd(0x2A); lcd_dat(0); lcd_dat(0); lcd_dat(1); lcd_dat(0x3F);
     lcd_cmd(0x2B); lcd_dat(0); lcd_dat(0); lcd_dat(0); lcd_dat(0xEF);
