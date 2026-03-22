@@ -1,0 +1,61 @@
+#!/bin/sh /etc/rc.common
+#
+# LCD UI init script for Almond 3S
+#
+# Boot sequence:
+#   1. lcd_drv.ko loaded early (S10) — shows logo + dmesg on screen, NO touch
+#   2. This script (S99) — enables touch, starts lcd_render + UI
+#
+# Touch is deferred to protect MT7530 LAN (SM0 I2C conflicts with IRQ #23)
+#
+# Install:
+#   cp lcd_ui.init /etc/init.d/lcd_ui
+#   chmod +x /etc/init.d/lcd_ui
+#   /etc/init.d/lcd_ui enable
+#   cp lcd_boot.init /etc/init.d/lcd_boot  # early module load
+#   chmod +x /etc/init.d/lcd_boot
+#   /etc/init.d/lcd_boot enable
+#
+
+START=99
+STOP=10
+USE_PROCD=1
+
+start_service() {
+    # Enable touch (deferred from boot — safe after MT7530 settled)
+    if [ -c /dev/lcd ]; then
+        echo -n "touch_start" > /dev/lcd 2>/dev/null
+        sleep 1
+    fi
+
+    # lcd_render — JSON socket renderer
+    procd_open_instance lcd_render
+    procd_set_param command /usr/bin/lcd_render
+    procd_set_param respawn
+    procd_set_param stdout 0
+    procd_set_param stderr 0
+    procd_close_instance
+
+    # data_collector — background stats daemon
+    procd_open_instance data_collector
+    procd_set_param command /usr/bin/data_collector
+    procd_set_param respawn
+    procd_close_instance
+
+    # touch_poll — touch daemon (forks internally)
+    /usr/bin/touch_poll daemon
+
+    # Wait for lcd_render socket
+    sleep 2
+
+    # lcd_ui.uc — main UI (ucode)
+    procd_open_instance lcd_ui
+    procd_set_param command /usr/bin/ucode /usr/bin/lcd_ui.uc
+    procd_set_param respawn
+    procd_set_param stderr 1
+    procd_close_instance
+}
+
+stop_service() {
+    killall touch_poll 2>/dev/null
+}

@@ -2,27 +2,29 @@
 #
 # build.sh — Сборка модулей и утилит для Securifi Almond 3S
 #
-# Описание:
-#   Скрипт собирает kernel module (lcd_drv.ko) на удалённом Linux-сервере
-#   с установленным OpenWrt SDK, а userspace-утилиты компилирует локально
-#   через zig cc (кросс-компиляция для MIPS).
+# Компоненты LCD UI:
+#   lcd_drv.ko      — kernel module (дисплей + тач + PIC battery)
+#   lcd_render      — userspace renderer (JSON через unix socket)
+#   touch_poll      — touch polling daemon (latch mode)
+#   data_collector  — фоновый сбор данных (LTE/WiFi/VPN/system)
+#   lcd_ui.uc       — UI скрипт (ucode: uloop + ubus + uci)
+#   settings.lua    — конфигурация
 #
 # Требования:
 #   - SSH доступ к серверу сборки (BUILD_SERVER)
-#   - На сервере: клон openwrt_almond с собранным тулчейном (make toolchain/install)
+#   - На сервере: клон openwrt_almond с собранным тулчейном
 #   - Локально: zig (https://ziglang.org) для кросс-компиляции userspace
 #   - Роутер доступен по SSH (ROUTER)
 #
 # Использование:
 #   ./build.sh              — собрать всё (kernel + userspace)
 #   ./build.sh kernel       — только kernel module (lcd_drv.ko) на сервере
-#   ./build.sh userspace    — только userspace утилиты (lcd_render, pic_test и др.)
-#   ./build.sh deploy       — залить бинарники + скрипты на роутер
-#   ./build.sh deploy-run   — залить и перезапустить kernel module
+#   ./build.sh userspace    — только userspace утилиты
+#   ./build.sh deploy       — залить на роутер
+#   ./build.sh deploy-run   — залить и запустить
 #
 # Настройка:
-#   Скопируйте build_config.sh.example в build_config.sh и укажите свои данные.
-#   build_config.sh не коммитится в git (в .gitignore).
+#   cp build_config.sh.example build_config.sh && nano build_config.sh
 #
 
 set -e
@@ -32,37 +34,25 @@ MODULES_DIR="$SCRIPT_DIR/modules"
 OUT_DIR="$SCRIPT_DIR/out"
 
 # === Конфигурация ===
-# Загружаем приватные настройки из build_config.sh
-# Этот файл НЕ коммитится в git — содержит адреса серверов
 if [ -f "$SCRIPT_DIR/build_config.sh" ]; then
     source "$SCRIPT_DIR/build_config.sh"
 else
     echo "ОШИБКА: Не найден build_config.sh"
-    echo ""
-    echo "Создайте файл build_config.sh по образцу build_config.sh.example:"
     echo "  cp build_config.sh.example build_config.sh"
-    echo "  nano build_config.sh"
-    echo ""
-    echo "Укажите в нём:"
-    echo "  BUILD_SERVER — SSH адрес сервера сборки (user@host)"
-    echo "  BUILD_DIR    — путь к openwrt_almond на сервере"
-    echo "  ROUTER       — SSH адрес роутера (root@192.168.11.1)"
     exit 1
 fi
 
-# Пути в OpenWrt SDK (относительно BUILD_DIR)
-# KDIR — путь к собранному ядру (нужен для компиляции .ko модулей)
 KDIR="build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/linux-6.6.127"
-# CROSS — префикс кросс-компилятора (gcc для mipsel)
 CROSS="staging_dir/toolchain-mipsel_24kc_gcc-13.3.0_musl/bin/mipsel-openwrt-linux-musl-"
 
 mkdir -p "$OUT_DIR"
 
-# === Сборка kernel module ===
+# === Kernel module ===
 build_kernel() {
     echo "=== Сборка lcd_drv.ko на сервере ==="
 
-    scp -O "$MODULES_DIR/lcd_drv.c" "$MODULES_DIR/splash_4pda.h" "$MODULES_DIR/Makefile" \
+    scp -O "$MODULES_DIR/lcd_drv.c" "$MODULES_DIR/splash_4pda.h" \
+           "$MODULES_DIR/pic_calib.h" "$MODULES_DIR/Makefile" \
         "$BUILD_SERVER:$BUILD_DIR/package/lcd-gpio/src/"
 
     ssh "$BUILD_SERVER" "cd $BUILD_DIR && \
@@ -73,60 +63,83 @@ build_kernel() {
             modules 2>&1 | tail -5"
 
     scp -O "$BUILD_SERVER:$BUILD_DIR/package/lcd-gpio/src/lcd_drv.ko" "$OUT_DIR/"
-
     echo ">>> $OUT_DIR/lcd_drv.ko"
-    ls -la "$OUT_DIR/lcd_drv.ko"
 }
 
-# === Сборка userspace утилит ===
+# === Userspace ===
 build_userspace() {
     echo "=== Сборка userspace (zig cc) ==="
+    local ZIG="zig cc -target mipsel-linux-musleabi -Os -static"
 
-    zig cc -target mipsel-linux-musleabi -O2 -static \
-        -o "$OUT_DIR/lcd_render" "$MODULES_DIR/lcd_render.c"
+    $ZIG -o "$OUT_DIR/lcd_render" "$MODULES_DIR/lcd_render.c"
     echo ">>> lcd_render"
 
-    zig cc -target mipsel-linux-musleabi -O2 -static \
-        -o "$OUT_DIR/pic_test" "$MODULES_DIR/pic_test.c"
-    echo ">>> pic_test"
+    $ZIG -o "$OUT_DIR/touch_poll" "$MODULES_DIR/touch_poll.c"
+    echo ">>> touch_poll"
 
-    zig cc -target mipsel-linux-musleabi -O2 -static \
-        -o "$OUT_DIR/lcd_touch_read" "$MODULES_DIR/lcd_touch_read.c"
-    echo ">>> lcd_touch_read"
+    $ZIG -o "$OUT_DIR/data_collector" "$MODULES_DIR/data_collector.c"
+    echo ">>> data_collector"
 
-    zig cc -target mipsel-linux-musleabi -O2 -static \
-        -o "$OUT_DIR/lcd_touch_poll" "$MODULES_DIR/lcd_touch_poll.c"
-    echo ">>> lcd_touch_poll"
-
-    ls -la "$OUT_DIR/lcd_render" "$OUT_DIR/pic_test" "$OUT_DIR/lcd_touch_read" "$OUT_DIR/lcd_touch_poll"
+    ls -la "$OUT_DIR/lcd_render" "$OUT_DIR/touch_poll" "$OUT_DIR/data_collector"
 }
 
 # === Деплой на роутер ===
 deploy() {
     echo "=== Деплой на $ROUTER ==="
 
-    scp -O "$OUT_DIR/lcd_drv.ko" "$OUT_DIR/lcd_render" "$OUT_DIR/pic_test" \
-        "$OUT_DIR/lcd_touch_read" "$OUT_DIR/lcd_touch_poll" "$ROUTER:/tmp/"
+    # Остановить процессы
+    ssh "$ROUTER" 'killall touch_poll 2>/dev/null; kill -9 $(pidof ucode) 2>/dev/null; killall data_collector lcd_render 2>/dev/null; sleep 1' || true
+
+    # Бинарники
+    scp -O "$OUT_DIR/lcd_render" "$OUT_DIR/touch_poll" "$OUT_DIR/data_collector" \
+        "$ROUTER:/usr/bin/"
     echo ">>> Бинарники загружены"
 
-    ssh "$ROUTER" "mkdir -p /etc/lcd_scripts"
-    scp -O "$SCRIPT_DIR/lcd_scripts/"*.lua "$ROUTER:/etc/lcd_scripts/"
-    scp -O "$MODULES_DIR/lcd_ui.lua" "$ROUTER:/tmp/"
+    # Скрипты
+    scp -O "$MODULES_DIR/lcd_ui.uc" "$ROUTER:/usr/bin/"
+    scp -O "$MODULES_DIR/settings.lua" "$ROUTER:/etc/lcd/settings.lua" 2>/dev/null || \
+        ssh "$ROUTER" "mkdir -p /etc/lcd" && \
+        scp -O "$MODULES_DIR/settings.lua" "$ROUTER:/etc/lcd/settings.lua"
     echo ">>> Скрипты загружены"
 
-    scp -O "$SCRIPT_DIR/luci-vpnswitch/vpnswitch.lua" "$ROUTER:/usr/lib/lua/luci/controller/"
-    scp -O "$SCRIPT_DIR/luci-vpnswitch/vpnswitch.htm" "$ROUTER:/usr/lib/lua/luci/view/"
-    ssh "$ROUTER" "rm -rf /tmp/luci-*"
-    echo ">>> LuCI vpnswitch загружен"
+    # Kernel module (если есть)
+    if [ -f "$OUT_DIR/lcd_drv.ko" ]; then
+        scp -O "$OUT_DIR/lcd_drv.ko" "$ROUTER:/tmp/"
+        echo ">>> lcd_drv.ko загружен в /tmp/"
+    fi
 
-    ssh "$ROUTER" "ls -la /tmp/lcd_drv.ko /tmp/lcd_render /tmp/lcd_touch_read /tmp/lcd_ui.lua"
+    ssh "$ROUTER" "chmod +x /usr/bin/lcd_render /usr/bin/touch_poll /usr/bin/data_collector /usr/bin/lcd_ui.uc"
+    echo ">>> Деплой завершён"
 }
 
-# === Деплой + перезагрузка модуля ===
+# === Деплой + запуск ===
 deploy_run() {
     deploy
-    echo "=== Перезагрузка lcd_drv.ko ==="
-    ssh "$ROUTER" "rmmod lcd_drv 2>/dev/null; insmod /tmp/lcd_drv.ko && echo 'OK: модуль загружен' && dmesg | grep lcd_drv | tail -10"
+    echo "=== Запуск LCD UI ==="
+    ssh "$ROUTER" '
+        # Kernel module
+        if [ -f /tmp/lcd_drv.ko ]; then
+            rmmod lcd_drv 2>/dev/null
+            insmod /tmp/lcd_drv.ko
+            cp /tmp/lcd_drv.ko /lib/modules/$(uname -r)/lcd_drv.ko
+        fi
+        sleep 1
+
+        # Запуск демонов
+        lcd_render &
+        sleep 1
+        data_collector &
+        touch_poll daemon
+        sleep 1
+
+        # UI
+        ucode /usr/bin/lcd_ui.uc > /tmp/lcd_ui.log 2>&1 &
+        sleep 3
+
+        echo "=== Статус ==="
+        ps | grep -E "lcd_render|data_collector|touch_poll|ucode" | grep -v grep
+        cat /tmp/lcd_ui.log
+    '
 }
 
 # === Точка входа ===

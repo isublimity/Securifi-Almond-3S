@@ -11,18 +11,67 @@ Running OpenWrt on Securifi Almond 3S with full hardware support: ILI9341 LCD di
 | Flash | 64 MB SPI-NOR | SPI | Working |
 | WiFi 2.4GHz | MT7615 | PCIe | Working |
 | WiFi 5GHz | MT7615 | PCIe | Working |
-| LAN | 3× Gigabit (MT7530) | RGMII | Working |
-| USB | 1× USB-A 2.0 | xHCI | Working |
-| Display | 2.8" IPS 240x320, ILI9341 controller | 8-bit parallel 8080-II via GPIO | **Working** (lcd_drv.ko + lcdlib.so mmap) |
-| Touchscreen | SX8650 resistive 4-wire | I2C bus 0, addr 0x48 | **Working** (palmbus I2C + SM0 save/restore, coexists with LAN) |
-| LTE Modem | Quectel EC21-E (Cat1) | miniPCIe / USB | Working |
-| Battery | 2S Li-Ion, BQ24133 charger | Analog (no digital interface) | Charging works |
+| LAN | 3x Gigabit (MT7530) | RGMII | Working |
+| USB | 1x USB-A 2.0 | xHCI | Working |
+| Display | 2.8" IPS 240x320, ILI9341 | 8-bit parallel 8080-II via GPIO | **Working** |
+| Touchscreen | SX8650 resistive 4-wire | I2C bus 0, addr 0x48 | **Working** |
+| LTE Modem | Fibocom L860-GL (Cat16) | miniPCIe USB MBIM | Working |
+| Battery | 2S Li-Ion, BQ24133 charger | PIC16 I2C | WIP |
 | Power MCU | PIC16LF1509 | I2C bus 0, addr 0x2A | WIP |
-| Zigbee | EM357 | UART3 (57600 baud) | Not supported (obsolete chip) |
+
+## LCD UI Architecture
+
+```
+[data_collector]  ── JSON ──>  /tmp/lcd_data.json
+                                       |
+[touch_poll]      ── file ──>  /tmp/.lcd_touch
+                                       |
+                               [lcd_ui.uc]  (ucode: uloop + ubus + uci)
+                                       |
+                               JSON via unix socket
+                                       |
+                               [lcd_render]  ── write() ──>  /dev/lcd
+                                                                |
+                                                         [lcd_drv.ko]
+                                                    GPIO bit-bang → ILI9341
+                                                    I2C → SX8650 touch
+                                                    I2C → PIC16 battery
+```
+
+### Components
+
+| Component | Language | Description |
+|-----------|----------|-------------|
+| `lcd_drv.ko` | C (kernel) | Framebuffer + GPIO bit-bang + touch + PIC battery + splash animation |
+| `lcd_render` | C (static) | Unix socket server, receives JSON draw commands, renders to /dev/lcd |
+| `lcd_ui.uc` | ucode | UI logic: dashboard, menu, pages. Uses uloop, ubus, uci natively |
+| `touch_poll` | C (static) | Touch daemon: polls ioctl, writes press events to file (latch mode) |
+| `data_collector` | C (static) | Background daemon: collects LTE/WiFi/VPN/system stats every 2 sec |
+| `settings.lua` | Lua table | Button layout, timing, color configuration |
+
+### UI Pages
+
+- **Dashboard** — LTE quality (background color), VPN status, ping, WiFi clients, uptime/mem/cpu
+- **Menu** — 6 buttons (2x3 grid): VPN, LTE, WiFi, Info, IP, MORE
+- **VPN** — WireGuard status + ON/OFF buttons
+- **LTE** — CSQ bar, operator, BER, ping stats
+- **WiFi** — SSIDs (from UCI), connected clients with signal/traffic
+- **Info** — System info, kernel version (from ubus), LTE details
+- **IP** — External IP, VPN route status
+- **Screensaver** — Bouncing clock (anti-burn-in), then backlight off
+
+### ucode Features Used
+
+- `uloop` — event-driven loop (4 timers: data 2s, touch 100ms, idle 1s, burn-in 30s)
+- `ubus` — system info (uptime, memory, load, board), no shell commands needed
+- `uci` — WiFi config (SSIDs, encryption) directly
+- `fs` — file I/O, popen for socat
+- `json()` — native JSON parsing
+- `localtime()` — clock display in header
+- `match()` — regex for touch coordinate parsing
+- Optional chaining (`d?.lte?.csq`) + nullish coalescing (`??`)
 
 ## Display: ILI9341 via GPIO bit-bang
-
-The display is connected via 8-bit parallel bus (Intel 8080-II protocol) using GPIO pins directly controlled through memory-mapped registers.
 
 ### GPIO Pin Mapping
 
@@ -30,186 +79,117 @@ The display is connected via 8-bit parallel bus (Intel 8080-II protocol) using G
 |--------|------|------|-------------|
 | D0 | 13 | 0x00002000 | Data bit 0 |
 | WRX | 14 | 0x00004000 | Write strobe |
-| RESET | 15 | 0x00008000 | Hardware reset (active LOW) |
+| RESET | 15 | 0x00008000 | Hardware reset |
 | CSX | 16 | 0x00010000 | Chip Select (active LOW) |
 | D/CX | 17 | 0x00020000 | Data/Command select |
 | D1 | 18 | 0x00040000 | Data bit 1 |
-| D2 | 22 | 0x00400000 | Data bit 2 |
-| D3 | 23 | 0x00800000 | Data bit 3 |
-| D4 | 24 | 0x01000000 | Data bit 4 |
-| D5 | 25 | 0x02000000 | Data bit 5 |
-| D6 | 26 | 0x04000000 | Data bit 6 |
-| D7 | 27 | 0x08000000 | Data bit 7 |
+| D2-D7 | 22-27 | 0x0FC00000 | Data bits 2-7 |
 | Backlight | 31 | 0x80000000 | Backlight enable |
 
 ### Key Technique: DIR Register Bit-Bang
 
-The display driver uses a unique approach discovered through firmware reverse engineering:
+GPIO DATA register is set HIGH once. Pin levels controlled through DIR register:
+- DIR=1 (output) → pin HIGH
+- DIR=0 (input) → pin floats LOW
 
-1. GPIO DATA register (0x1E000600) is set to HIGH for all LCD pins **once** during init
-2. Pin levels are controlled through the GPIO **DIR register** (0x1E000620):
-   - DIR bit = 1 (output) → pin drives HIGH (since DATA=1)
-   - DIR bit = 0 (input) → pin floats LOW
+Kernel GPIO pins are claimed via `gpio_request()` + `gpio_direction_output()` to prevent mt7621_gpio driver from overwriting DIR.
 
-This bypasses the standard Linux GPIO subsystem which doesn't properly control these pins on MT7621.
+## lcd_drv.ko — /dev/lcd Interface
 
-### GPIOMODE
+| Operation | Description |
+|-----------|-------------|
+| `write()` | Write framebuffer data (320x240 RGB565 = 153600 bytes) |
+| `write "fps N"` | Set render thread FPS (0=manual flush) |
+| `ioctl(0)` | Flush framebuffer to display, stop splash |
+| `ioctl(1, int[3])` | Read touch: `{x, y, pressed}` (pixel coordinates) |
+| `ioctl(2, u8[17])` | Read PIC battery data |
+| `ioctl(4, 0/1/2)` | Backlight: OFF / ON / show splash |
+| `ioctl(5, N)` | Scene select (0-5, 99=random, 100=stop) |
 
-The GPIOMODE register must be set to `0x95A8` (matching the original bootloader) to enable GPIO mode for JTAG pins (GPIO 13-17).
+## lcd_render — JSON Socket Protocol
 
-## Touchscreen: SX8650
+Listens on `/tmp/lcd.sock`. Send JSON commands via socat or netcat:
 
-### Protocol
-
-Two separate I2C transactions per reading:
-- **SELECT(X) = 0x80** → read 2 bytes → X raw (0-4095)
-- **SELECT(Y) = 0x81** → read 2 bytes → Y raw (0-4095)
-
-### Calibration
-
+```bash
+echo '{"cmd":"clear","color":"red"}' | socat - UNIX-CONNECT:/tmp/lcd.sock
+echo '{"cmd":"text","x":10,"y":10,"text":"Hello","color":"white","size":2}' | socat - UNIX-CONNECT:/tmp/lcd.sock
 ```
-screen_x = (4096 - raw_x) * 320 / 4096
-screen_y = raw_y * 240 / 4096
-```
 
-### Init Registers
+| Command | Fields | Description |
+|---------|--------|-------------|
+| `clear` | color | Fill screen |
+| `rect` | x, y, w, h, color | Filled rectangle |
+| `text` | x, y, text, color, bg, size | Text (5x7 font, scale 1-5) |
+| `flush` | — | Force display update |
 
-| Register | Address | Value | Description |
-|----------|---------|-------|-------------|
-| Reg 0 | 0x00 | 0x00 | |
-| CTRL0 | 0x01 | 0x27 | 300 cps, 1.36ms powdly |
-| CTRL1 | 0x02 | 0x00 | |
-| CTRL2 | 0x03 | 0x2D | Settling + pen resistance |
-| ChanMsk | 0x04 | 0xC0 | X + Y channels |
-
-After register init, send PenTrg commands: `0x80` then `0x90`.
-
-## LTE Modem
-
-- Quectel EC21-E (LTE Cat1, max 10/5 Mbps)
-- AT port: `/dev/ttyUSB2` at 115200 baud
-- Bands: B1/B3/B5/B7/B8/B20 (compatible with EU operators)
-- Hardware reset: GPIO 33 (active LOW)
-
-### Useful AT Commands
-
-```
-AT+CSQ              # Signal strength
-AT+CPIN?            # SIM status
-AT+COPS?            # Operator
-AT+QNWINFO          # Current band
-AT+QCFG="band",0,44 # Lock to Band 3+7
-```
+Colors: `"red"`, `"green"`, `"blue"`, `"white"`, `"black"`, `"yellow"`, `"cyan"`, `"#RRGGBB"`, `"#XXXX"` (raw RGB565)
 
 ## Building
 
 ### Prerequisites
 
-- OpenWrt build system
-- Branch: `almond-3s` (based on `openwrt-24.10`, kernel 6.12.74)
-
-**Note**: Kernel 6.12.74 is tested and stable.
+- [zig](https://ziglang.org) for cross-compiling userspace (on Mac/Linux)
+- OpenWrt build system on a Linux server for kernel module
+- SSH access to router (`root@192.168.11.1`)
 
 ### Quick Build
 
 ```bash
-git clone https://github.com/isublimity/openwrt_almond.git
-cd openwrt_almond
-git checkout almond-3s
-./build-almond-3s.sh
+# Userspace only (on Mac)
+zig cc -target mipsel-linux-musleabi -Os -static -o lcd_render modules/lcd_render.c
+zig cc -target mipsel-linux-musleabi -Os -static -o touch_poll modules/touch_poll.c
+zig cc -target mipsel-linux-musleabi -Os -static -o data_collector modules/data_collector.c
+
+# Full build (kernel + userspace + deploy)
+cp build_config.sh.example build_config.sh  # configure first
+./build.sh all
+./build.sh deploy-run
 ```
 
-### Cross-compiling C for the Router
+### Deploy Manually
 
 ```bash
-zig cc -target mipsel-linux-musleabi -O2 -static -o binary source.c
-scp -O binary root@192.168.11.1:/tmp/
+scp -O lcd_render touch_poll data_collector root@192.168.11.1:/usr/bin/
+scp -O modules/lcd_ui.uc root@192.168.11.1:/usr/bin/
+ssh root@192.168.11.1 'lcd_render & data_collector & touch_poll daemon; ucode /usr/bin/lcd_ui.uc &'
 ```
 
-## Flashing
+## Flashing OpenWrt
 
 ### Via U-Boot Recovery
 
-1. Power off the router
-2. Set PC IP to `192.168.1.3`, netmask `255.255.255.0`
-3. Hold Reset + power on
-4. Open `http://192.168.1.1`
-5. Upload `sysupgrade.bin`
-6. Wait ~10 min, display will flash → power cycle
-7. Wait 11 min for jffs2 initialization
+1. Hold Reset + power on
+2. PC IP: `192.168.1.3`, open `http://192.168.1.1`
+3. Upload `sysupgrade.bin`, wait ~10 min
 
-### Via Stock Firmware (USB Flash)
+### Via LuCI
 
-1. Format USB drive as FAT32, copy `sysupgrade.bin`
-2. Factory reset stock firmware (don't touch screen)
-3. Telnet to `10.10.10.254:23` (admin/admin)
-4. Mount and flash:
-```bash
-mount /dev/sda1 /mnt/storage
-cd /mnt/storage
-mtd_write write openwrt-*-sysupgrade.bin Kernel
-```
-
-## Kernel Modules
-
-### lcd_drv.ko
-
-ILI9341 display driver with framebuffer support.
-
-- Creates `/dev/lcd` device
-- Framebuffer: 320×240 RGB565 (153600 bytes)
-- Write full frame: `write()` to `/dev/lcd`
-- Touch: ioctl(1) returns `{x, y, pressed}`
-- Auto-loads at boot
-
-### lcd_gpio.ko
-
-Low-level GPIO mmap helper. Creates `/dev/lcd_gpio` for userspace direct register access.
-
-## Architecture (mmap A+C)
-
-```
-lcd_ui.lua (Lua)         — UI logic, buttons, screensaver, state machine
-    ↕ require("lcdlib")
-lcdlib.so (Lua C module) — mmap framebuffer, rect/text/line/clear/flush/touch
-    ↕ mmap /dev/lcd + ioctl
-lcd_drv.ko (kernel)      — GPIO bit-bang, ILI9341, framebuffer (mmap), touch, fps=0
-```
-
-No intermediate processes or unix sockets needed. Lua scripts access the framebuffer directly through lcdlib.so.
+System → Backup/Flash → Flash new firmware
 
 ## Known Issues
 
-- **Reboot doesn't work** — PIC16 controls power. Must use power button.
-- **Watchcat dangerous** — if configured to reboot on connectivity loss, router hangs. Disable immediately.
-- **First boot after sysupgrade**: 11 min 13 sec for jffs2 init
-- **Auto-start on power**: requires soldering hack (VDD→RC5 on PIC16)
-
-## IRQ Optimization
-
-Add to `/etc/rc.local` before `exit 0`:
-```bash
-echo 2 > "/proc/irq/29/smp_affinity"   # USB → Core1t2
-echo 4 > "/proc/irq/31/smp_affinity"   # WiFi 2.4GHz → Core2t1
-echo 8 > "/proc/irq/32/smp_affinity"   # WiFi 5GHz → Core2t2
-```
+- **Reboot doesn't work** — PIC16 controls power. Use power button.
+- **Watchcat dangerous** — can hang router with white screen. Disable.
+- **First boot**: 11 min for jffs2 init on 64MB flash.
+- **I2C shared bus** — lcd_drv uses mutex to share I2C between touch (SX8650) and battery (PIC16)
 
 ## Source Code
 
-- **OpenWrt fork with Almond 3S support**: [openwrt_almond/almond-3s](https://github.com/isublimity/openwrt_almond/commits/almond-3s/)
-- **This documentation**: [Securifi-Almond-3S](https://github.com/isublimity/Securifi-Almond-3S)
+- **OpenWrt fork**: [openwrt_almond/almond-3s](https://github.com/isublimity/openwrt_almond/tree/almond-3s)
+- **This repo**: [Securifi-Almond-3S](https://github.com/isublimity/Securifi-Almond-3S)
 
-## Detailed Documentation
+## Documentation
 
-- [LCD.md](LCD.md) — Display driver deep dive: ILI9341 init, GPIO bit-bang, framebuffer
-- [TOUCH.md](TOUCH.md) — Touchscreen driver: SX8650 protocol, calibration, coordinates
-- [LCD_RENDER.md](LCD_RENDER.md) — Display stack: mmap architecture (lcdlib.so), legacy JSON protocol
+- [LCD.md](LCD.md) — Display driver: ILI9341 init, GPIO bit-bang
+- [TOUCH.md](TOUCH.md) — Touchscreen: SX8650 protocol, calibration
+- [Fibocom_Setup.md](Fibocom_Setup.md) — LTE modem setup (Fibocom L860-GL)
+- [modules/lcd_ui_design.md](modules/lcd_ui_design.md) — UI architecture
 
 ## Credits
 
 - Display and touch protocol reverse engineered from original firmware (kernel 3.10.14)
 - U-Boot by [a43/fildunsky](https://github.com/fildunsky/openwrt)
-- Community support from [4PDA forum](https://4pda.to/)
+- Community: [4PDA forum](https://4pda.to/)
 - OpenWrt project
 
 ## License

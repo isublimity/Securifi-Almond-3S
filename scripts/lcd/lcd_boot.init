@@ -1,0 +1,19 @@
+#!/bin/sh /etc/rc.common
+#
+# Early LCD boot — load lcd_drv.ko for splash + boot console
+# Touch is NOT enabled here (deferred to S99 lcd_ui)
+#
+
+START=10
+STOP=99
+
+start() {
+    KMOD="/lib/modules/$(uname -r)/lcd_drv.ko"
+    if [ -f "$KMOD" ] && ! lsmod | grep -q lcd_drv; then
+        insmod "$KMOD"
+    fi
+}
+
+stop() {
+    rmmod lcd_drv 2>/dev/null
+}
