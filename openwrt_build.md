@@ -1,272 +1,135 @@
 # Сборка OpenWrt для Securifi Almond 3S
 
-## Репозитории
+## Текущая стабильная сборка
 
-- **OpenWrt форк**: https://github.com/isublimity/openwrt_almond/commits/almond-3s/
-- **Документация и модули**: https://github.com/isublimity/Securifi-Almond-3S
+- **Репо**: fildunsky_openwrt (форк OpenWrt 25.12.0)
+- **Ядро**: 6.12.74
+- **GCC**: 14.3.0
+- **Коммит**: `00d105224d` (ramips: add support Securifi Almond 3S)
 
-## Требования
-
-- **Ветка**: [`almond-3s`](https://github.com/isublimity/openwrt_almond/tree/almond-3s) (базируется на `openwrt-24.10`)
-- **Ядро**: 6.12.74 (проверено, стабильно)
-- **Сервер сборки**: ~10 ГБ RAM, ~30 ГБ диска, Linux x86_64
-- **Тулчейн**: собирается автоматически (GCC 13.3, musl, mipsel_24kc)
-
-## Быстрый старт
+## Быстрая сборка прошивки
 
 ```bash
-git clone https://github.com/isublimity/openwrt_almond.git
-cd openwrt_almond
-git checkout almond-3s
-./build-almond-3s.sh          # полная сборка
-./build-almond-3s.sh clean    # с очисткой
+# На сервере сборки
+cd /mnt/sata/var/openwrt/fildunsky_openwrt
+./build-almond.sh
 ```
 
-Результат: `bin/targets/ramips/mt7621/openwrt-*-securifi_almond-3s-*-sysupgrade.bin`
+Результат: `bin/targets/ramips/mt7621/openwrt-*-sysupgrade.bin` (~11 MB)
 
-## Структура проекта в OpenWrt
+## Сборка только модуля lcd_drv.ko
 
-### Определение устройства
+```bash
+FILD=/mnt/sata/var/openwrt/fildunsky_openwrt
+KDIR=$FILD/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/linux-6.12.74
+CROSS=$FILD/staging_dir/toolchain-mipsel_24kc_gcc-14.3.0_musl/bin/mipsel-openwrt-linux-musl-
 
-Файл: `target/linux/ramips/image/mt7621.mk`
-
-```makefile
-define Device/securifi_almond-3s
-  $(Device/dsa-migration)
-  IMAGE_SIZE := 65408k
-  DEVICE_VENDOR := Securifi
-  DEVICE_MODEL := Almond 3S
-  DEVICE_PACKAGES := kmod-usb3 kmod-usb-net-qmi-wwan kmod-usb-serial-option uqmi kmod-lcd-gpio
-  SUPPORTED_DEVICES += securifi,almond-3s
-endef
-TARGET_DEVICES += securifi_almond-3s
+make -C $KDIR M=$FILD/package/lcd-gpio/src ARCH=mips CROSS_COMPILE=$CROSS modules
 ```
 
-### Device Tree
+## Сборка userspace (Mac, zig cc)
 
-Файл: `target/linux/ramips/dts/mt7621_securifi_almond-3s.dts`
+```bash
+zig cc -target mipsel-linux-musleabi -Os -static -o lcd_render modules/lcd_render.c
+zig cc -target mipsel-linux-musleabi -Os -static -o touch_poll modules/touch_poll.c
+zig cc -target mipsel-linux-musleabi -Os -static -o data_collector modules/data_collector.c
+```
 
-### Kernel module (lcd_drv)
+Или: `./build.sh userspace`
 
-Пакет: `package/lcd-gpio/`
+## DTS — критические настройки
+
+```dts
+&i2c {
+    status = "okay";
+};
+
+&ethphy0 {
+    /delete-property/ interrupts;  /* КРИТИЧНО! Без этого IRQ #23 убивает LAN */
+};
+
+&state_default {
+    lcd_jtag {
+        groups = "jtag";
+        function = "gpio";        /* LCD пины GPIO 13-17 */
+    };
+};
+```
+
+**ВАЖНО**: `&ethphy0 { /delete-property/ interrupts; }` — без этого SM0 touch операции убивают MT7530 IRQ #23 → LAN мёртв.
+
+## Пакет lcd-gpio
 
 ```
 package/lcd-gpio/
-├── Makefile              # OpenWrt package makefile
+├── Makefile
 └── src/
     ├── Makefile          # obj-m += lcd_drv.o
-    └── lcd_drv.c         # Исходник модуля
+    ├── lcd_drv.c
+    ├── splash_4pda.h
+    └── pic_calib.h
 ```
 
 ```makefile
 # package/lcd-gpio/Makefile
-include $(TOPDIR)/rules.mk
-include $(INCLUDE_DIR)/kernel.mk
-
-PKG_NAME:=lcd-gpio
-PKG_VERSION:=2.0
-PKG_RELEASE:=1
-
-include $(INCLUDE_DIR)/package.mk
-
 define KernelPackage/lcd-gpio
   SUBMENU:=Other modules
   TITLE:=ILI9341 LCD + SX8650 Touch + PIC16 Battery
   FILES:=$(PKG_BUILD_DIR)/lcd_drv.ko
   AUTOLOAD:=$(call AutoLoad,90,lcd_drv)
 endef
-
-define Build/Compile
-	$(KERNEL_MAKE) M=$(PKG_BUILD_DIR) modules
-endef
-
-$(eval $(call KernelPackage,lcd-gpio))
 ```
 
-### Src Makefile
+## Пакеты в прошивке
 
-```makefile
-# package/lcd-gpio/src/Makefile
-obj-m += lcd_drv.o
-```
+| Категория | Пакеты |
+|-----------|--------|
+| LCD | kmod-lcd-gpio, i2c-tools, socat |
+| LTE | kmod-usb-net-cdc-mbim, kmod-usb-acm, umbim, luci-proto-mbim |
+| VPN | kmod-wireguard, wireguard-tools, openvpn-openssl, kmod-tun, xl2tpd, kmod-l2tp, kmod-pppol2tp |
+| DNS | https-dns-proxy |
+| UI | luci-ssl, luci-i18n-base-ru |
+| Utils | nano, curl, tcpdump, openssh-sftp-server, picocom |
 
-## Сборка только kernel module (без полной пересборки)
+## Прошивка роутера
 
+### U-Boot Recovery
+1. PC IP: `192.168.1.3`, маска `255.255.255.0`
+2. Зажать Reset + включить роутер
+3. Открыть `http://192.168.1.1`
+4. Загрузить sysupgrade.bin
+5. Ждать ~10 мин → power cycle → ждать 11 мин (jffs2)
+
+### После прошивки
 ```bash
-# На сервере сборки
-cd /mnt/sata/var/openwrt/fork/openwrt_almond
-
-KDIR=build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/linux-6.12.74
-CROSS=$(pwd)/staging_dir/toolchain-mipsel_24kc_gcc-13.3.0_musl/bin/mipsel-openwrt-linux-musl-
-
-make -C $KDIR M="$(pwd)/package/lcd-gpio/src" ARCH=mips CROSS_COMPILE="$CROSS" modules
+scp first_setup.sh root@192.168.11.1:/tmp/
+ssh root@192.168.11.1 'sh /tmp/first_setup.sh --all'
 ```
 
-Результат: `package/lcd-gpio/src/lcd_drv.ko`
+## Загрузка lcd_drv.ko
 
-## Сборка userspace (на Mac через zig)
+При boot:
+1. `modules.d/99-lcd-drv` → загрузка модуля (ранняя, logo + boot console)
+2. `S99lcd_ui` init → `echo touch_start > /dev/lcd` → touch + lcd_render + UI
 
-```bash
-# lcd_render — рендерер дисплея
-zig cc -target mipsel-linux-musleabi -O2 -static -o lcd_render lcd_render.c
+Touch деферирован — SM0 операции безопасны после полной инициализации MT7530.
 
-# pic_test — тест PIC battery
-zig cc -target mipsel-linux-musleabi -O2 -static -o pic_test pic_test.c
+## /dev/lcd интерфейс
 
-# lcd_touch_read — чтение тача
-zig cc -target mipsel-linux-musleabi -O2 -static -o lcd_touch_read lcd_touch_read.c
-```
-
-Или через `build.sh`:
-```bash
-cd Securifi-Almond-3S
-./build.sh all          # kernel module (на сервере) + userspace (zig)
-./build.sh kernel       # только kernel module
-./build.sh userspace    # только userspace
-./build.sh deploy       # залить на роутер
-./build.sh deploy-run   # залить + перезагрузить модуль
-```
-
-## Конфигурация прошивки (.config)
-
-### Обязательные пакеты
-
-| Пакет | Зачем |
-|-------|-------|
-| `CONFIG_TARGET_ramips_mt7621_DEVICE_securifi_almond-3s=y` | Целевое устройство |
-| `CONFIG_PACKAGE_kmod-lcd-gpio=y` | Наш модуль дисплея (lcd_drv.ko) |
-| `CONFIG_PACKAGE_kmod-usb3=y` | USB контроллер (модем, флешки) |
-| `CONFIG_PACKAGE_kmod-usb-net-qmi-wwan=y` | QMI для LTE модема |
-| `CONFIG_PACKAGE_kmod-usb-serial-option=y` | AT-порт модема (/dev/ttyUSB*) |
-| `CONFIG_PACKAGE_uqmi=y` | Утилита управления QMI |
-
-### WiFi MT7615
-
-| Пакет | Зачем |
-|-------|-------|
-| `CONFIG_PACKAGE_kmod-mt7615e=y` | WiFi драйвер MT7615 (2.4 + 5 GHz) |
-| `CONFIG_PACKAGE_kmod-mt7615-firmware=y` | Firmware для MT7615 |
-
-### LCD UI зависимости
-
-| Пакет | Зачем |
-|-------|-------|
-| `CONFIG_PACKAGE_lua=y` | Lua 5.1 для lcd_ui.lua |
-
-**ПРИМЕЧАНИЕ**: Конфликт `kmod-i2c-mt7621` с тачскрином решён в lcd_drv.ko через SM0 save/restore. lcd_drv.ko сохраняет регистры SM0 перед palmbus I2C операцией и восстанавливает после. i2c-mt7621 может работать параллельно. **НИКОГДА не делать `rmmod i2c_mt7621`** — это ломает MT7530 Ethernet switch (LAN carrier=0 на всех портах).
-
-### VPN
-
-| Пакет | Зачем |
-|-------|-------|
-| `CONFIG_PACKAGE_kmod-wireguard=y` | WireGuard в ядре |
-| `CONFIG_PACKAGE_wireguard-tools=y` | wg утилита |
-| `CONFIG_PACKAGE_luci-proto-wireguard=y` | LuCI интеграция WG |
-| `CONFIG_PACKAGE_openvpn-openssl=y` | OpenVPN (требует kmod-tun!) |
-| `CONFIG_PACKAGE_kmod-tun=y` | **TUN device — нужен для OpenVPN!** |
-| `CONFIG_PACKAGE_luci-app-openvpn=y` | LuCI для OpenVPN |
-
-### DNS и прочее
-
-| Пакет | Зачем |
-|-------|-------|
-| `CONFIG_PACKAGE_https-dns-proxy=y` | DNS-over-HTTPS |
-| `CONFIG_PACKAGE_luci=y` | Веб-интерфейс |
-| `CONFIG_PACKAGE_luci-ssl=y` | HTTPS для LuCI |
-| `CONFIG_PACKAGE_luci-i18n-base-ru=y` | Русский язык |
-
-### Утилиты
-
-| Пакет | Зачем |
-|-------|-------|
-| `CONFIG_PACKAGE_htop=y` | Мониторинг процессов |
-| `CONFIG_PACKAGE_nano=y` | Текстовый редактор |
-| `CONFIG_PACKAGE_curl=y` | HTTP клиент |
-| `CONFIG_PACKAGE_openssh-sftp-server=y` | SFTP доступ |
-
-### Что НЕ нужно
-
-| Параметр | Почему |
-|----------|--------|
-| `CONFIG_KERNEL_DEVMEM=y` | Не нужен — lcd_drv.ko использует ioremap, не /dev/mem |
-
-## Деплой на роутер
-
-### Полная прошивка (sysupgrade)
-
-```bash
-# Через LuCI
-System → Backup/Flash → Flash new firmware → sysupgrade.bin (без сохранения настроек)
-
-# Через U-Boot Recovery
-# 1. Выключить роутер
-# 2. PC IP = 192.168.1.3, маска 255.255.255.0
-# 3. Зажать Reset + включить
-# 4. http://192.168.1.1 → загрузить sysupgrade.bin
-# 5. Ждать ~10 мин, экран мигнёт → power cycle
-# 6. Ждать 11 мин (jffs2 init)
-```
-
-### Только модуль (без пересборки прошивки)
-
-```bash
-# На Mac
-cd Securifi-Almond-3S
-./build.sh deploy-run
-```
-
-Или вручную:
-```bash
-scp lcd_drv.ko root@192.168.11.1:/tmp/
-ssh root@192.168.11.1 'rmmod lcd_drv 2>/dev/null; insmod /tmp/lcd_drv.ko'
-```
-
-### Запуск LCD UI
-
-```bash
-ssh root@192.168.11.1
-lua /usr/share/lcd/lcd_ui.lua &  # UI с кнопками + скринсейвер (использует lcdlib.so mmap)
-```
-
-### Ioctl команды /dev/lcd
-
-| cmd | arg | Описание |
-|-----|-----|----------|
-| 0 | — | flush framebuffer |
+| ioctl | arg | Описание |
+|-------|-----|----------|
+| 0 | — | flush framebuffer, stop splash |
 | 1 | int[3] | read touch {x, y, pressed} |
-| 2 | u8[17] | read PIC battery (заблокировано без калибровки) |
-| 3 | u8[17] | raw PIC read |
-| 4 | 0 | backlight OFF |
-| 4 | 1 | backlight ON |
-| 4 | 2 | show splash (4PDA bitmap из ядра) |
+| 2 | u8[17] | read PIC battery (disabled) |
+| 4 | 0/1/2 | backlight OFF/ON/splash |
+| 5 | 0-5/99/100 | scene select/random/stop |
+| write | "touch_start" | init SX8650 + start touch thread |
+| write | raw bytes | framebuffer data (153600 bytes) |
 
-### Защита от выгорания дисплея
+## Известные ограничения
 
-lcd_ui.lua реализует state machine:
-
-```
-active (UI)  --30 сек-->  screensaver (4PDA лого)  --30 сек-->  off (подсветка выкл)
-     ^                         |                                     |
-     |                         v                                     v
-     +--------  touch  --------+----------  touch  ------------------+
-```
-
-Параметры (в lcd_ui.lua):
-- `IDLE_TO_SAVER = 30` — секунд до скринсейвера
-- `IDLE_TO_OFF = 30` — секунд от скринсейвера до выключения подсветки
-
-### Компоненты LCD стека
-
-| Компонент | Тип | Описание |
-|-----------|-----|----------|
-| lcd_drv.ko | kernel | Framebuffer (mmap), GPIO bit-bang, touch, backlight, splash, fps=0 |
-| lcdlib.so | Lua C модуль | mmap framebuffer + rect/text/line/clear/flush/touch/backlight |
-| lcd_ui.lua | Lua | UI: кнопки, графики, скринсейвер, state machine |
-| lcd_render | userspace C (legacy) | JSON рендерер через unix socket (совместимость) |
-
-## Известные проблемы
-
-| Проблема | Причина | Решение |
-|----------|---------|---------|
-| Тач не работает | kmod-i2c-mt7621 захватывал SM0 | Решено: SM0 save/restore в lcd_drv.ko. i2c-mt7621 и тач работают одновременно |
-| OpenVPN не ставится через opkg | Нет kmod-tun в прошивке | Добавить `CONFIG_PACKAGE_kmod-tun=y` в .config, пересобрать |
+- **gpio_request() НЕЛЬЗЯ** — ломает MT7530 IRQ #23
+- **PIC battery ОТКЛЮЧЁН** — SM0 операции конфликтуют с MT7530
+- **daemon() из musl** ломает fd — использовать fork()+setsid()
+- **Reboot не работает** — PIC16 контролирует питание, только кнопкой
+- **Fibocom L860-GL** — нужен GPIO reset при каждом boot
