@@ -1019,7 +1019,7 @@ static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
         /* Return latest battery data from periodic palmbus read */
         if (copy_to_user((void __user *)arg, pic_battery_raw, PIC_BATTERY_LEN))
             return -EFAULT;
-        return pic_battery_valid ? 0 : -ENODATA;
+        return 0;  /* always return data, let userspace decide validity */
     }
     if (cmd == 3) {
         /* Raw PIC read (no write command, just read) */
@@ -1092,6 +1092,34 @@ static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
         len = snprintf(ver, sizeof(ver), "v%s %s", LCD_DRV_VERSION, LCD_DRV_BUILD);
         if (copy_to_user((void __user *)arg, ver, len + 1))
             return -EFAULT;
+        return 0;
+    }
+    if (cmd == 8) {
+        /* PIC SM0 write: send up to 8 bytes to PIC via auto mode.
+         * arg = pointer to struct { u8 len; u8 data[8]; } */
+        u8 p[9];
+        u32 saved_ctl1 = gr(SM0_CTL1);
+        int i;
+        if (copy_from_user(p, (void __user *)arg, 9))
+            return -EFAULT;
+        if (p[0] < 1 || p[0] > 8)
+            return -EINVAL;
+
+        gw(SM0_CTL1, 0x90644042); udelay(10);
+        gw(SM0_CFG, 0xFA);
+        gw(SM0_DATA, PIC_ADDR);
+        gw(SM0_START, p[0]);
+        gw(SM0_DATAOUT, p[1]);
+        gw(SM0_STATUS, 0);
+        for (i = 2; i <= p[0]; i++) {
+            int w; for (w = 0; w < 500; w++) { if (gr(0x918) & 0x02) break; udelay(10); }
+            udelay(1000);
+            gw(SM0_DATAOUT, p[i]);
+        }
+        { int w; for (w = 0; w < 500; w++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+        gw(SM0_CTL1, saved_ctl1); udelay(10);
+
+        pr_info("lcd_drv: PIC write [%d]: %02x %02x %02x\n", p[0], p[1], p[2], p[3]);
         return 0;
     }
     return -ENOTTY;
