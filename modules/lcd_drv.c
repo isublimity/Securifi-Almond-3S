@@ -20,14 +20,11 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/i2c.h>
-#include <linux/gpio.h>
-#include <linux/console.h>
 
 #include "splash_4pda.h"
 #include "pic_calib.h"
 
 #define DEVICE_NAME  "lcd"
-#define LCD_DRV_VERSION "0.33"
 #define LCD_W        320
 #define LCD_H        240
 #define FB_SIZE      (LCD_W * LCD_H * 2)  /* RGB565 */
@@ -62,168 +59,9 @@ static u8 *framebuffer;        /* kernel buffer */
 static struct page **fb_pages; /* pages for mmap */
 static int fb_npages;
 static struct task_struct *render_thread;
-static int target_fps = 10;  /* 10 fps for splash, userspace can change */
+static int target_fps = 0;  /* manual flush only — userspace controls refresh */
 static int fb_dirty = 1;
 static int splash_active = 1; /* demoscene animation until userspace takes over */
-static int touch_started = 0; /* touch deferred until "touch_start" command */
-
-/* === Boot console: show kernel messages on LCD === */
-#define CON_LINES 28
-#define CON_COLS  53   /* 320 / 6 = 53 chars */
-static char con_buf[CON_LINES][CON_COLS + 1];
-static int con_line = 0;
-static int con_col = 0;
-static int con_active = 1;  /* show console during boot */
-
-/* Minimal 5x7 font (ASCII 32-126) */
-static const u8 boot_font[95][5] = {
-    {0x00,0x00,0x00,0x00,0x00},{0x00,0x00,0x5F,0x00,0x00},
-    {0x00,0x07,0x00,0x07,0x00},{0x14,0x7F,0x14,0x7F,0x14},
-    {0x24,0x2A,0x7F,0x2A,0x12},{0x23,0x13,0x08,0x64,0x62},
-    {0x36,0x49,0x55,0x22,0x50},{0x00,0x05,0x03,0x00,0x00},
-    {0x00,0x1C,0x22,0x41,0x00},{0x00,0x41,0x22,0x1C,0x00},
-    {0x14,0x08,0x3E,0x08,0x14},{0x08,0x08,0x3E,0x08,0x08},
-    {0x00,0x50,0x30,0x00,0x00},{0x08,0x08,0x08,0x08,0x08},
-    {0x00,0x60,0x60,0x00,0x00},{0x20,0x10,0x08,0x04,0x02},
-    {0x3E,0x51,0x49,0x45,0x3E},{0x00,0x42,0x7F,0x40,0x00},
-    {0x42,0x61,0x51,0x49,0x46},{0x21,0x41,0x45,0x4B,0x31},
-    {0x18,0x14,0x12,0x7F,0x10},{0x27,0x45,0x45,0x45,0x39},
-    {0x3C,0x4A,0x49,0x49,0x30},{0x01,0x71,0x09,0x05,0x03},
-    {0x36,0x49,0x49,0x49,0x36},{0x06,0x49,0x49,0x29,0x1E},
-    {0x00,0x36,0x36,0x00,0x00},{0x00,0x56,0x36,0x00,0x00},
-    {0x08,0x14,0x22,0x41,0x00},{0x14,0x14,0x14,0x14,0x14},
-    {0x00,0x41,0x22,0x14,0x08},{0x02,0x01,0x51,0x09,0x06},
-    {0x32,0x49,0x79,0x41,0x3E},{0x7E,0x11,0x11,0x11,0x7E},
-    {0x7F,0x49,0x49,0x49,0x36},{0x3E,0x41,0x41,0x41,0x22},
-    {0x7F,0x41,0x41,0x22,0x1C},{0x7F,0x49,0x49,0x49,0x41},
-    {0x7F,0x09,0x09,0x09,0x01},{0x3E,0x41,0x49,0x49,0x7A},
-    {0x7F,0x08,0x08,0x08,0x7F},{0x00,0x41,0x7F,0x41,0x00},
-    {0x20,0x40,0x41,0x3F,0x01},{0x7F,0x08,0x14,0x22,0x41},
-    {0x7F,0x40,0x40,0x40,0x40},{0x7F,0x02,0x0C,0x02,0x7F},
-    {0x7F,0x04,0x08,0x10,0x7F},{0x3E,0x41,0x41,0x41,0x3E},
-    {0x7F,0x09,0x09,0x09,0x06},{0x3E,0x41,0x51,0x21,0x5E},
-    {0x7F,0x09,0x19,0x29,0x46},{0x46,0x49,0x49,0x49,0x31},
-    {0x01,0x01,0x7F,0x01,0x01},{0x3F,0x40,0x40,0x40,0x3F},
-    {0x1F,0x20,0x40,0x20,0x1F},{0x3F,0x40,0x38,0x40,0x3F},
-    {0x63,0x14,0x08,0x14,0x63},{0x07,0x08,0x70,0x08,0x07},
-    {0x61,0x51,0x49,0x45,0x43},{0x00,0x7F,0x41,0x41,0x00},
-    {0x02,0x04,0x08,0x10,0x20},{0x00,0x41,0x41,0x7F,0x00},
-    {0x04,0x02,0x01,0x02,0x04},{0x40,0x40,0x40,0x40,0x40},
-    {0x00,0x01,0x02,0x04,0x00},{0x20,0x54,0x54,0x54,0x78},
-    {0x7F,0x48,0x44,0x44,0x38},{0x38,0x44,0x44,0x44,0x20},
-    {0x38,0x44,0x44,0x48,0x7F},{0x38,0x54,0x54,0x54,0x18},
-    {0x08,0x7E,0x09,0x01,0x02},{0x0C,0x52,0x52,0x52,0x3E},
-    {0x7F,0x08,0x04,0x04,0x78},{0x00,0x44,0x7D,0x40,0x00},
-    {0x20,0x40,0x44,0x3D,0x00},{0x7F,0x10,0x28,0x44,0x00},
-    {0x00,0x41,0x7F,0x40,0x00},{0x7C,0x04,0x18,0x04,0x78},
-    {0x7C,0x08,0x04,0x04,0x78},{0x38,0x44,0x44,0x44,0x38},
-    {0x7C,0x14,0x14,0x14,0x08},{0x08,0x14,0x14,0x18,0x7C},
-    {0x7C,0x08,0x04,0x04,0x08},{0x48,0x54,0x54,0x54,0x20},
-    {0x04,0x3F,0x44,0x40,0x20},{0x3C,0x40,0x40,0x20,0x7C},
-    {0x1C,0x20,0x40,0x20,0x1C},{0x3C,0x40,0x30,0x40,0x3C},
-    {0x44,0x28,0x10,0x28,0x44},{0x0C,0x50,0x50,0x50,0x3C},
-    {0x44,0x64,0x54,0x4C,0x44},{0x00,0x08,0x36,0x41,0x00},
-    {0x00,0x00,0x7F,0x00,0x00},{0x00,0x41,0x36,0x08,0x00},
-    {0x10,0x08,0x08,0x10,0x08},
-};
-
-static void con_putchar(int x, int y, char ch, u16 fg)
-{
-    u16 *fb = (u16 *)framebuffer;
-    int idx = ch - 32;
-    int col, row;
-    if (idx < 0 || idx >= 95) return;
-    for (col = 0; col < 5; col++)
-        for (row = 0; row < 7; row++)
-            if (boot_font[idx][col] & (1 << row))
-                if (x + col < LCD_W && y + row < LCD_H)
-                    fb[(y + row) * LCD_W + x + col] = fg;
-}
-
-static void con_render(void)
-{
-    u16 *fb = (u16 *)framebuffer;
-    int l, c, x, y = 0;
-    /* Clear screen to dark */
-    memset(fb, 0, FB_SIZE);
-    /* Render all lines */
-    for (l = 0; l < CON_LINES && y < LCD_H - 8; l++) {
-        int li = (con_line + 1 + l) % CON_LINES;
-        x = 1;
-        for (c = 0; con_buf[li][c] && x < LCD_W - 6; c++) {
-            con_putchar(x, y, con_buf[li][c], 0x07E0); /* green text */
-            x += 6;
-        }
-        y += 8;
-    }
-}
-
-static void lcd_console_write(struct console *co, const char *s, unsigned count)
-{
-    unsigned i;
-    if (!con_active) return;
-    for (i = 0; i < count; i++) {
-        if (s[i] == '\n' || con_col >= CON_COLS) {
-            con_line = (con_line + 1) % CON_LINES;
-            con_col = 0;
-            memset(con_buf[con_line], 0, CON_COLS + 1);
-        }
-        if (s[i] >= 32 && s[i] < 127)
-            con_buf[con_line][con_col++] = s[i];
-    }
-    fb_dirty = 1;
-}
-
-static struct console lcd_con = {
-    .name  = "lcd",
-    .write = lcd_console_write,
-    .flags = CON_ENABLED,
-    .index = -1,
-};
-
-/*
- * LCD GPIO pins — request via kernel GPIO API to prevent
- * mt7621_gpio driver from overwriting DIR register.
- * GPIO chip base = 512 (bank0), so pin N = 512 + N.
- */
-#define GPIO_BASE_NR 512
-static const int lcd_gpio_pins[] = {
-    13, /* D0 */  14, /* WRX */ 15, /* RST */
-    16, /* CSX */ 17, /* DCX */ 18, /* D1 */
-    22, /* D2 */  23, /* D3 */  24, /* D4 */
-    25, /* D5 */  26, /* D6 */  27, /* D7 */
-    31, /* BL */
-};
-#define LCD_GPIO_COUNT ARRAY_SIZE(lcd_gpio_pins)
-static int lcd_gpios_requested;
-
-static void __maybe_unused lcd_gpio_request_all(void)
-{
-    int i, ret;
-    lcd_gpios_requested = 0;
-    for (i = 0; i < LCD_GPIO_COUNT; i++) {
-        int gpio_nr = GPIO_BASE_NR + lcd_gpio_pins[i];
-        ret = gpio_request(gpio_nr, "lcd_drv");
-        if (ret) {
-            pr_warn("lcd_drv: gpio_request(%d) failed: %d\n",
-                    lcd_gpio_pins[i], ret);
-        } else {
-            /* Set as output HIGH — kernel GPIO driver will track this state
-             * and NOT reset to input during read-modify-write */
-            gpio_direction_output(gpio_nr, 1);
-            lcd_gpios_requested++;
-        }
-    }
-    pr_info("lcd_drv: requested %d/%d GPIO pins (all output)\n",
-            lcd_gpios_requested, (int)LCD_GPIO_COUNT);
-}
-
-static void __maybe_unused lcd_gpio_free_all(void)
-{
-    int i;
-    for (i = 0; i < LCD_GPIO_COUNT; i++)
-        gpio_free(GPIO_BASE_NR + lcd_gpio_pins[i]);
-}
 
 /* === GPIO bit-bang (exact U-Boot replica) === */
 
@@ -233,11 +71,8 @@ static inline u32 gr(u32 off) { return __raw_readl(gpio_base + off); }
 /*
  * Write GPIO DIR register preserving non-LCD pins.
  * Only LCD_PIN_MASK bits come from lcd_bits, rest from base_dir.
- * bb_lock: when set, skip DIR writes (bit-bang I2C in progress)
  */
-static volatile int bb_lock;
 static inline void gw_dir(u32 lcd_bits) {
-    if (bb_lock) return;  /* bit-bang I2C owns DIR register */
     gw(GPIO_DIR_OFF, base_dir | (lcd_bits & LCD_PIN_MASK));
 }
 
@@ -328,19 +163,10 @@ static void lcd_gpio_init(void)
 {
     u32 data;
     /*
-     * GPIOMODE: set JTAG+WDT+RGMII2 → GPIO for LCD pins.
-     * OR only — preserve MDIO (bit 12). Never overwrite!
+     * GPIOMODE is now configured via DTS pinctrl (jtag/wdt/rgmii2 → gpio).
+     * DO NOT write GPIOMODE here — it would clobber MDIO and kill MT7530 LAN!
+     * Old value 0x95A8 had bit 12 set = MDIO→GPIO = LAN dead.
      */
-    { u32 gmode = gr(GPIOMODE_OFF); gw(GPIOMODE_OFF, gmode | 0x9580); udelay(100); }
-
-    /*
-     * Request all LCD GPIO pins via kernel API.
-     * This prevents mt7621_gpio driver from overwriting DIR register
-     * via read-modify-write when other GPIOs change.
-     */
-    /* gpio_request REMOVED — causes MT7530 IRQ #23 conflict on bank0.
-     * Working build fd6c74d (2026-03-18) did NOT use gpio_request.
-     * DIR bit-bang works without it. */
 
     /* Save non-LCD DIR bits to preserve other GPIO settings */
     base_dir = gr(GPIO_DIR_OFF) & ~LCD_PIN_MASK;
@@ -413,9 +239,8 @@ static void lcd_flush_fb(void)
     u16 *pixels = (u16 *)framebuffer;
     int i;
 
-    /* DO NOT re-read base_dir here!
-     * Kernel GPIO driver may have reset LCD pins to input.
-     * Use the base_dir saved at init time. */
+    /* Refresh non-LCD DIR bits in case other drivers changed them */
+    base_dir = gr(GPIO_DIR_OFF) & ~LCD_PIN_MASK;
 
     lcd_cmd(0x2A); lcd_dat(0); lcd_dat(0); lcd_dat(1); lcd_dat(0x3F);
     lcd_cmd(0x2B); lcd_dat(0); lcd_dat(0); lcd_dat(0); lcd_dat(0xEF);
@@ -791,74 +616,31 @@ static int render_fn(void *data)
     if (current_scene < 0)
         current_scene = jiffies % NUM_SCENES;
 
-    /* Show logo first frame */
-    memset(framebuffer, 0, FB_SIZE);
-    overlay_logo();
-    lcd_flush_fb();
-
     while (!kthread_should_stop()) {
-        if (con_active && splash_active) {
-            /* Boot console: show kernel messages on LCD */
-            if (fb_dirty) {
-                con_render();
-                lcd_flush_fb();
-                fb_dirty = 0;
-            }
-            msleep(100);
-        } else if (splash_active) {
+        if (splash_active) {
             render_scene(current_scene, frame++);
             lcd_flush_fb();
-            msleep(100);
+            msleep(100); /* breathe — let network/SSH work */
             if (kthread_should_stop()) break;
+        } else if (fb_dirty) {
+            lcd_flush_fb();
+            fb_dirty = 0;
         } else {
-            if (fb_dirty) {
-                lcd_flush_fb();
-                fb_dirty = 0;
-            }
-            msleep(100);
+            msleep(50);
         }
     }
     return 0;
 }
 
-/* Forward declarations for deferred touch */
-static void sx8650_hw_init(void);
-/* Forward declarations for deferred touch */
-static void sx8650_hw_init(void);
-static int touch_fn(void *data);
-static struct task_struct *touch_thread;
-
 /* === /dev/lcd file operations === */
 
-/* Raw write: записать пиксели или текстовые команды */
+/* Raw write: записать пиксели напрямую в framebuffer */
 static ssize_t lcd_fb_write(struct file *f, const char __user *buf,
                              size_t cnt, loff_t *p)
 {
     loff_t pos = *p;
-    char cmd[32];
-
-    /* Check for text commands (short writes from userspace) */
-    if (cnt < sizeof(cmd) && pos == 0) {
-        if (copy_from_user(cmd, buf, cnt))
-            return -EFAULT;
-        cmd[cnt < sizeof(cmd) - 1 ? cnt : sizeof(cmd) - 1] = 0;
-
-        /* "touch_start" — deferred touch init (safe after MT7530 settled) */
-        if (strncmp(cmd, "touch_start", 11) == 0) {
-            if (!touch_started) {
-                con_active = 0;  /* stop boot console */
-                splash_active = 0;
-                pr_info("lcd_drv: touch_start — init SX8650 + start thread\n");
-                sx8650_hw_init();
-                touch_thread = kthread_run(touch_fn, NULL, "lcd_touch");
-                touch_started = 1;
-            }
-            return cnt;
-        }
-    }
 
     splash_active = 0;  /* userspace took over — stop animation */
-    con_active = 0;     /* stop boot console */
 
     if (pos >= FB_SIZE) return 0;
     if (pos + cnt > FB_SIZE) cnt = FB_SIZE - pos;
@@ -868,6 +650,7 @@ static ssize_t lcd_fb_write(struct file *f, const char __user *buf,
 
     *p = pos + cnt;
 
+    /* Если записан полный кадр или конец — отметить dirty */
     if (pos + cnt >= FB_SIZE)
         fb_dirty = 1;
 
@@ -886,7 +669,6 @@ static ssize_t lcd_fb_write(struct file *f, const char __user *buf,
 
 /* SM0 I2C controller registers */
 #define SM0_CFG     0x900
-#define SM0_CFG2    0x928  /* bit 0 = auto mode enable */
 #define SM0_DATA    0x908
 #define SM0_DATAOUT 0x910
 #define SM0_DATAIN  0x914
@@ -909,7 +691,7 @@ static ssize_t lcd_fb_write(struct file *f, const char __user *buf,
 
 static int touch_x, touch_y;
 static int touch_pressed;
-/* touch_thread declared as forward above */
+static struct task_struct *touch_thread;
 static struct i2c_adapter *touch_i2c_adap;
 
 /* === PIC16 Battery via Linux I2C === */
@@ -918,240 +700,6 @@ static struct i2c_adapter *touch_i2c_adap;
 
 static u8 pic_battery_raw[PIC_BATTERY_LEN];
 static int pic_battery_valid;
-
-static DEFINE_MUTEX(i2c_bus_mutex);  /* protects SM0 + I2C pins between touch and battery */
-
-/* === GPIO bit-bang I2C for PIC ===
- * SM0 auto mode corrupts PIC on kernel 6.12!
- * Bypass SM0 entirely — bit-bang I2C via GPIO 3 (SDA) and GPIO 4 (SCL).
- * Uses DIR register: DIR=1+DATA=0 → drive LOW, DIR=0 → float HIGH (pull-up)
- * Must temporarily switch GPIOMODE to put I2C pins in GPIO mode.
- */
-#define BB_SDA_GPIO  515  /* gpiochip0 base=512 + pin 3 */
-#define BB_SCL_GPIO  516  /* gpiochip0 base=512 + pin 4 */
-#define BB_DELAY 10  /* us, ~50kHz — slower for gpio API overhead */
-
-static void bb_sda_low(void)  { gpio_direction_output(BB_SDA_GPIO, 0); udelay(1); }
-static void bb_sda_high(void) { gpio_direction_input(BB_SDA_GPIO); udelay(1); }
-static void bb_scl_low(void)  { gpio_direction_output(BB_SCL_GPIO, 0); udelay(BB_DELAY); }
-static void bb_scl_high(void) {
-    int timeout = 1000;
-    gpio_direction_input(BB_SCL_GPIO);
-    /* Wait for slave to release SCL (clock stretching support) */
-    while (!gpio_get_value(BB_SCL_GPIO) && timeout--)
-        udelay(1);
-    udelay(BB_DELAY);
-}
-static int __maybe_unused bb_sda_read(void) { gpio_direction_input(BB_SDA_GPIO); udelay(2); return gpio_get_value(BB_SDA_GPIO); }
-
-static void bb_i2c_start(void)
-{
-    bb_sda_high(); bb_scl_high(); udelay(BB_DELAY);
-    bb_sda_low(); udelay(BB_DELAY);  /* SDA↓ while SCL HIGH = START */
-    bb_scl_low();
-}
-
-static void bb_i2c_stop(void)
-{
-    bb_sda_low(); bb_scl_high(); udelay(BB_DELAY);
-    bb_sda_high(); udelay(BB_DELAY);  /* SDA↑ while SCL HIGH = STOP */
-}
-
-static void bb_i2c_restart(void)
-{
-    /* Restart = Start without Stop. SCL is LOW after last byte. */
-    bb_sda_high(); udelay(BB_DELAY);   /* SDA HIGH first */
-    bb_scl_high(); udelay(BB_DELAY);   /* SCL HIGH (wait stretch) */
-    bb_sda_low();  udelay(BB_DELAY);   /* SDA↓ while SCL HIGH = RESTART */
-    bb_scl_low();                       /* SCL LOW — ready for address */
-}
-
-static int bb_i2c_write_byte(u8 byte)
-{
-    int i, ack;
-    for (i = 7; i >= 0; i--) {
-        if ((byte >> i) & 1) bb_sda_high(); else bb_sda_low();
-        bb_scl_high(); bb_scl_low();
-    }
-    /* Read ACK: release SDA, slave pulls LOW = ACK */
-    gpio_direction_input(BB_SDA_GPIO);
-    udelay(5);
-    bb_scl_high();
-    udelay(5);
-    ack = gpio_get_value(BB_SDA_GPIO);
-    bb_scl_low();
-    udelay(10);  /* settling time before next byte */
-    return (ack == 0);  /* 1 = ACK received */
-}
-
-static u8 bb_i2c_read_byte(int send_ack)
-{
-    u8 byte = 0;
-    int i;
-    gpio_direction_input(BB_SDA_GPIO);
-    udelay(5);
-
-    for (i = 7; i >= 0; i--) {
-        bb_scl_high();
-        udelay(3);
-        if (gpio_get_value(BB_SDA_GPIO)) byte |= (1 << i);
-        bb_scl_low();
-
-        /* On LAST data bit: set ACK IMMEDIATELY while SCL still LOW.
-         * gpio_direction_output takes time through pinctrl —
-         * start early so SDA is LOW before 9th SCL rises. */
-        if (i == 0 && send_ack) {
-            gpio_direction_output(BB_SDA_GPIO, 0);
-            udelay(30);  /* LONG setup — ensure SDA physically LOW */
-        } else {
-            udelay(3);
-        }
-    }
-
-    if (!send_ack) {
-        /* NACK — ensure SDA HIGH */
-        gpio_direction_input(BB_SDA_GPIO);
-        udelay(10);
-    }
-
-    /* 9th clock — PIC samples ACK/NACK */
-    bb_scl_high();
-    udelay(5);
-    bb_scl_low();
-    udelay(5);
-
-    /* Release SDA, wait for PIC to load next byte (clock stretch) */
-    gpio_direction_input(BB_SDA_GPIO);
-    udelay(20);
-    return byte;
-}
-
-/* Acquire I2C GPIO pins — must also fix base_dir to prevent LCD gw_dir() overwrite */
-static u32 bb_saved_gpiomode;
-
-static int bb_sda_ok, bb_scl_ok;
-
-static void bb_acquire(void)
-{
-    bb_saved_gpiomode = gr(GPIOMODE_OFF);
-    bb_lock = 1;
-    wmb();
-
-    /* Switch pinmux to GPIO + request via kernel API */
-    gw(GPIOMODE_OFF, bb_saved_gpiomode | (1 << 2));
-    udelay(100);
-    bb_sda_ok = (gpio_request(BB_SDA_GPIO, "bb_sda") == 0);
-    bb_scl_ok = (gpio_request(BB_SCL_GPIO, "bb_scl") == 0);
-
-    /* Both HIGH (input, pull-up) */
-    gpio_direction_input(BB_SDA_GPIO);
-    gpio_direction_input(BB_SCL_GPIO);
-    udelay(200);
-
-    pr_info("lcd_drv: BB acquire: sda_req=%d scl_req=%d SDA=%d SCL=%d\n",
-            bb_sda_ok, bb_scl_ok,
-            gpio_get_value(BB_SDA_GPIO), gpio_get_value(BB_SCL_GPIO));
-}
-
-static void bb_release(void)
-{
-    gpio_direction_input(BB_SDA_GPIO);
-    gpio_direction_input(BB_SCL_GPIO);
-    udelay(10);
-    if (bb_sda_ok) gpio_free(BB_SDA_GPIO);
-    if (bb_scl_ok) gpio_free(BB_SCL_GPIO);
-    gw(GPIOMODE_OFF, bb_saved_gpiomode);
-    udelay(50);
-    bb_lock = 0;
-    wmb();
-}
-
-/* Combined Write+Restart+Read — the correct I2C protocol for PIC.
- * Sends cmd bytes, then Restart, then reads response. */
-static int __maybe_unused bb_pic_combined(const u8 *cmd, int cmd_len, u8 *resp, int resp_len)
-{
-    int i, ok = 1;
-
-    bb_acquire();
-
-    /* Write phase: START → addr+W → cmd bytes */
-    bb_i2c_start();
-    if (!bb_i2c_write_byte((PIC_ADDR << 1) | 0)) {
-        pr_info("lcd_drv: BB combined: addr+W NACK\n");
-        ok = 0; goto done;
-    }
-    for (i = 0; i < cmd_len; i++) {
-        if (!bb_i2c_write_byte(cmd[i])) {
-            pr_info("lcd_drv: BB combined: data[%d] NACK\n", i);
-            ok = 0; goto done;
-        }
-    }
-
-    /* RESTART (not Stop!) — PIC resets slave logic, ready for Read */
-    bb_i2c_restart();
-
-    /* Read phase: addr+R → read bytes → NACK last → STOP */
-    if (!bb_i2c_write_byte((PIC_ADDR << 1) | 1)) {
-        pr_info("lcd_drv: BB combined: addr+R NACK\n");
-        ok = 0; goto done;
-    }
-    for (i = 0; i < resp_len; i++)
-        resp[i] = bb_i2c_read_byte(i < resp_len - 1);  /* ACK all, NACK last */
-
-done:
-    bb_i2c_stop();
-    bb_release();
-    return ok;
-}
-
-/* Write buffer to PIC via bit-bang I2C. Returns 1 on success. */
-static int __maybe_unused bb_pic_write(const u8 *data, int len)
-{
-    int i, ok = 1;
-
-    bb_acquire();
-
-    /* I2C transaction */
-    bb_i2c_start();
-    if (!bb_i2c_write_byte((PIC_ADDR << 1) | 0)) {  /* write address */
-        pr_info("lcd_drv: BB PIC addr NACK!\n");
-        ok = 0;
-    }
-    if (ok) {
-        for (i = 0; i < len; i++) {
-            if (!bb_i2c_write_byte(data[i])) {
-                pr_info("lcd_drv: BB PIC data[%d] NACK!\n", i);
-                ok = 0; break;
-            }
-        }
-    }
-    bb_i2c_stop();
-    bb_release();
-
-    return ok;
-}
-
-/* Read bytes from PIC via bit-bang I2C. Returns bytes read. */
-static int __maybe_unused bb_pic_read(u8 *buf, int len)
-{
-    int i, ok = 1;
-
-    bb_acquire();
-
-    bb_i2c_start();
-    if (!bb_i2c_write_byte((PIC_ADDR << 1) | 1)) {  /* read address */
-        pr_info("lcd_drv: BB PIC read addr NACK!\n");
-        ok = 0;
-    }
-    if (ok) {
-        for (i = 0; i < len; i++)
-            buf[i] = bb_i2c_read_byte(i < len - 1);  /* ACK all except last */
-    }
-    bb_i2c_stop();
-    bb_release();
-
-    return ok ? len : 0;
-}
 
 /* Palmbus I2C raw helpers */
 static void i2c_raw_write(u8 val)
@@ -1178,15 +726,14 @@ static void i2c_raw_stop(void)
     udelay(150);
 }
 
-/* SX8650 init via palmbus SM0 (save/restore CTL1) — proven working on 6.12.74 */
 static void sx8650_hw_init(void)
 {
     u32 saved_ctl1 = gr(SM0_CTL1);
 
-    /* Get I2C adapter for ioctl PIC reads */
+    /* Get I2C adapter for PIC battery (Linux I2C) */
     touch_i2c_adap = i2c_get_adapter(0);
     if (!touch_i2c_adap)
-        pr_warn("lcd_drv: cannot get I2C adapter 0\n");
+        pr_warn("lcd_drv: cannot get I2C adapter 0 (PIC battery won't work)\n");
 
     /* SX8650 init via palmbus (needs SM0_CTL1=0x90644042) */
     gw(SM0_CTL1, 0x90644042);
@@ -1221,11 +768,6 @@ static void sx8650_hw_init(void)
 /*
  * Read touch X/Y via palmbus direct (SM0_CTL1 saved/restored).
  * Format: [0|CHAN(2:0)|D(11:8)] [D(7:0)]
- */
-/*
- * Read touch X/Y via palmbus direct (SM0_CTL1 saved/restored).
- * Format: [0|CHAN(2:0)|D(11:8)] [D(7:0)]
- * Proven working on kernel 6.12.74 (commit 492a154).
  */
 static int sx8650_read_xy(int *rx, int *ry)
 {
@@ -1363,54 +905,58 @@ static int __maybe_unused pic_read_battery(void)
  * Read PIC battery via new SM0 registers (0x944/0x950/0x954).
  * Called from touch thread with SM0 in known state (after touch restore).
  */
-static void __maybe_unused pic_read_battery_palmbus(void)
+static void pic_read_battery_palmbus(void)
 {
     u8 resp[17] = {0};
     u32 saved_ctl1 = gr(SM0_CTL1);
-    int i;
 
-    /* EXACT stock kernel protocol (from IDA_DATA_TRACE.md):
-     * SM0_DATA = 0x2A (kept from previous write — DO NOT change!)
-     * SM0_START = count - 1 (NOT count!)
-     * SM0_STATUS = 1 (READ mode)
-     * Poll SM0_POLLSTA bit 0x04 (NOT 0x02!)
-     * udelay(10) after ready
-     * Read SM0_DATAIN */
+    /* Restore SM0CTL0 for new-style operation */
+    gw(NEW_CTL0, saved_ctl1); udelay(10);
 
-    gw(SM0_CTL1, 0x90640042); udelay(10);  /* Stock CTL1 value */
-    gw(SM0_DATA, PIC_ADDR);                 /* Ensure PIC addr set */
+    /* Wait idle */
+    { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
 
-    gw(SM0_START, 8 - 1);                   /* count-1 = 7 for 8 bytes! */
-    gw(SM0_STATUS, 1);                       /* READ mode */
+    /* START */
+    gw(NEW_CTL1, N_START | N_TRI);
+    { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
 
-    for (i = 0; i < 8; i++) {
-        int p;
-        /* Poll POLLSTA bit 0x04 (bit 2) — NOT 0x02! */
-        for (p = 0; p < 100000; p++) {
-            if (gr(0x918) & 0x04) break;
+    /* Write PIC read address */
+    gw(NEW_D0, (PIC_ADDR << 1) | 1);
+    gw(NEW_CTL1, N_WRITE | N_TRI | N_PGLEN(1));
+    { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+
+    /* Read 17 bytes in 8+8+1 chunks */
+    {
+        int rd_off = 0, remaining = 17;
+        while (remaining > 0) {
+            int chunk = (remaining > 8) ? 8 : remaining;
+            u32 cmd = (remaining > 8) ? N_READ : N_READ_L;
+            u32 d0, d1;
+            gw(NEW_CTL1, cmd | N_TRI | N_PGLEN(chunk));
+            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+            d0 = gr(NEW_D0);
+            d1 = gr(NEW_D1);
+            memcpy(&resp[rd_off], &d0, chunk > 4 ? 4 : chunk);
+            if (chunk > 4)
+                memcpy(&resp[rd_off + 4], &d1, chunk - 4);
+            rd_off += chunk;
+            remaining -= chunk;
         }
-        udelay(10);
-        resp[i] = gr(SM0_DATAIN) & 0xFF;
     }
 
-    /* Restore */
-    gw(SM0_CTL1, saved_ctl1); udelay(10);
+    /* STOP */
+    gw(NEW_CTL1, N_STOP | N_TRI);
+    { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
 
     /* Log and update battery data */
-    /* Byte 0 = SM0 echo (0xFF), bytes 1+ = PIC data.
-     * Bytes 2-3 = raw ADC value. Thresholds: <401=CRIT, 401-541=LOW, >=542=NORMAL */
-    {
-        int adc_raw = ((resp[2] & 0xFF) << 8) | (resp[3] & 0xFF);
-        const char *level = (adc_raw < 401) ? "CRIT" : (adc_raw < 542) ? "LOW" : "OK";
-        pr_info("lcd_drv: PIC BAT: ADC=%d (%s) [%02x %02x %02x %02x %02x %02x %02x %02x]\n",
-                adc_raw, level,
-                resp[0], resp[1], resp[2], resp[3],
-                resp[4], resp[5], resp[6], resp[7]);
+    pr_info("lcd_drv: PIC poll: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+            resp[0], resp[1], resp[2], resp[3],
+            resp[4], resp[5], resp[6], resp[7]);
 
-        if (resp[1] != 0x00 && resp[1] != 0xFF) {
-            memcpy(pic_battery_raw, resp, 8);
-            pic_battery_valid = 1;
-        }
+    /* Update if valid (not all zeros) */
+    if (resp[0] != 0x00 || resp[4] != 0x00 || resp[6] != 0x00) {
+        memcpy(pic_battery_raw, resp, 17);
+        pic_battery_valid = ((resp[6] & 0x40) == 0);
     }
 }
 
@@ -1418,30 +964,32 @@ static int touch_fn(void *data)
 {
     int x, y, was_pressed = 0;
     int no_touch_count = 0;
+    int battery_counter = 0;
+
     while (!kthread_should_stop()) {
-
-        /* PIC battery polling DISABLED — SM0 operations kill MT7530 IRQ #23.
-         * Touch-only mode: no I2C bus contention. */
-
-        /* Touch read — trylock so we never block */
-        if (mutex_trylock(&i2c_bus_mutex)) {
-            if (sx8650_read_xy(&x, &y)) {
-                touch_x = x;
-                touch_y = y;
-                touch_pressed = 1;
-                no_touch_count = 0;
-                if (!was_pressed)
-                    pr_info("lcd_drv: touch DOWN x=%d y=%d (raw data logged)\n", x, y);
-                was_pressed = 1;
-            } else {
-                no_touch_count++;
-                if (no_touch_count > 10 && was_pressed) {
-                    touch_pressed = 0;
-                    was_pressed = 0;
-                    pr_info("lcd_drv: touch UP\n");
-                }
+        /* Touch read (palmbus direct, SM0_CTL1 saved/restored) */
+        if (sx8650_read_xy(&x, &y)) {
+            touch_x = x;
+            touch_y = y;
+            touch_pressed = 1;
+            no_touch_count = 0;
+            if (!was_pressed)
+                pr_info("lcd_drv: touch DOWN x=%d y=%d (raw data logged)\n", x, y);
+            was_pressed = 1;
+        } else {
+            no_touch_count++;
+            if (no_touch_count > 10 && was_pressed) {
+                touch_pressed = 0;
+                was_pressed = 0;
+                pr_info("lcd_drv: touch UP\n");
             }
-            mutex_unlock(&i2c_bus_mutex);
+        }
+
+        /* Battery read every ~10 sec (200 * 50ms) */
+        battery_counter++;
+        if (battery_counter >= 200) {
+            battery_counter = 0;
+            pic_read_battery_palmbus();
         }
 
         msleep(50);
@@ -1602,83 +1150,223 @@ static int __init lcd_drv_init(void)
     current_scene = jiffies % NUM_SCENES;
     render_scene(current_scene, 0);
     lcd_flush_fb();
-    /* splash_active stays 1 — animation runs */
 
-    /* SX8650 touchscreen — DEFERRED to "touch_start" command.
-     * SM0 operations during early boot kill MT7530 IRQ #23 → LAN dead.
-     * Init script sends "touch_start" after network is up (S99). */
+    /* SX8650 touchscreen init */
+    sx8650_hw_init();
 
-    /* PIC16 battery — DISABLED (SM0 operations kill MT7530 IRQ #23 → LAN dead).
-     * All PIC code kept but not executed. To re-enable, uncomment this block
-     * and the battery_counter block in touch_fn().
-     */
-    pr_info("lcd_drv: PIC battery DISABLED (protects MT7530 LAN)\n");
-
-#if 0  /* PIC DISABLED — breaks LAN */
-    /* PIC16 battery init — IDA deep analysis protocol (2026-03-19)
-     * 1. SM0 RSTCTRL hardware reset
-     * 2. SM0_CTL1 = 0x90640042 (NOT 0x90644042!)
-     * 3. WAKE {0x33, 0x00, 0x00} — no calibration
-     * 4. bat_read {0x2F, 0x00, 0x01} — POLLING mode (not 0x02!)
-     * 5. Wait 500ms
-     * 6. SM0 read (SEPARATE transaction, not Combined!)
+    /* PIC16 battery: send calibration via palmbus STOCK PROTOCOL,
+     * then read battery via Linux I2C.
+     *
+     * Stock protocol: SM0_START = total_len (ONCE), poll 0x918 bit 1,
+     * then SM0_DATAOUT for each byte. NOT SM0_START=0 per byte!
      */
     {
-        int ok;
-        u8 wake_cmd[3] = { 0x33, 0x00, 0x00 };
-        u8 bat_cmd[3]  = { 0x2F, 0x00, 0x01 };
+        int ci;
+        u32 saved_ctl1 = gr(SM0_CTL1);
+        u32 saved_cfg = gr(SM0_CFG);
 
-        pr_info("lcd_drv: PIC init v2 (IDA protocol)...\n");
+        pr_info("lcd_drv: PIC init 0x41 + calibration...\n");
 
-        /* Step 1: SM0 RSTCTRL hardware reset (from IDA sub_411770) */
-        /* RSTCTRL removed — kills MT7530 IRQ #23 */
-
-        /* Step 2: SM0 init — CORRECT value from IDA! */
-        gw(SM0_CTL1, 0x90640042);       /* NOT 0x90644042! bit 14 must be 0 */
-        udelay(10);
-        gw(SM0_CFG2, 0x01);             /* auto mode ON (0x928 = debug/enable) */
-        gw(0x90C, 0);                   /* SM0_SLAVE = 0 */
-        pr_info("lcd_drv: SM0 reset done, CTL1=0x%08X\n", gr(SM0_CTL1));
-
-        /* Step 3: WAKE {0x33, 0x00, 0x00} — no calibration, count=0 */
-        ok = bb_pic_write(wake_cmd, 3);
-        pr_info("lcd_drv: PIC WAKE {33,00,00}: %s\n", ok ? "ACK" : "NACK");
-        mdelay(5);
-
-        /* Step 4: bat_read {0x2F, 0x00, 0x01} — POLLING mode! */
-        ok = bb_pic_write(bat_cmd, 3);
-        pr_info("lcd_drv: PIC bat_read {2F,00,01}: %s\n", ok ? "ACK" : "NACK");
-
-        /* Step 5: Wait 500ms for PIC to process + ADC conversion */
+        /* Step 0: PIC INIT {0x41} — required for ADC to start.
+         * Side effect: buzzer ON. Immediately send buzzer OFF after. */
+        gw(SM0_CTL1, 0x90644042); udelay(10);
+        gw(SM0_CFG, 0xFA);
+        gw(SM0_DATA, PIC_ADDR);
+        gw(SM0_START, 1);
+        gw(SM0_DATAOUT, 0x41);
+        gw(SM0_STATUS, 0);
+        { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
         mdelay(500);
 
-        /* Step 6: SM0 read — SEPARATE transaction (stock protocol!) */
-        pr_info("lcd_drv: PIC SM0 read after bat_read...\n");
-        pic_read_battery_palmbus();
+        /* Buzzer OFF {0x34, 0x00, 0x00} */
+        gw(SM0_DATA, PIC_ADDR);
+        gw(SM0_START, 3);
+        gw(SM0_DATAOUT, 0x34);
+        gw(SM0_STATUS, 0);
+        { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+        udelay(1000);
+        gw(SM0_DATAOUT, 0x00);
+        { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+        udelay(1000);
+        gw(SM0_DATAOUT, 0x00);
+        { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+        mdelay(100);
+
+        pr_info("lcd_drv: PIC init done, buzzer off sent\n");
+
+        /* Byte-swap helper: stock firmware swaps each int16 before sending.
+         * Our pic_calib.h has big-endian {0x00,0x04} = value 4.
+         * Stock sends as {0x04,0x00} (swapped). */
+        {
+            u8 calib_buf[401];
+
+            /* Step 0: Wake command {0x33, 0x00, 0x01} before calibration */
+            gw(SM0_CTL1, 0x90644042); udelay(10);
+            gw(SM0_CFG, 0xFA);
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 3);
+            gw(SM0_DATAOUT, 0x33);
+            gw(SM0_STATUS, 0);
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+            udelay(1000);
+            gw(SM0_DATAOUT, 0x00);
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+            udelay(1000);
+            gw(SM0_DATAOUT, 0x01);
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+            mdelay(5);
+
+            /* Step 1: Table 1 — byte-swap int16 pairs, keep cmd byte */
+            calib_buf[0] = pic_calib1[0]; /* cmd = 0x03, no swap */
+            for (ci = 1; ci < 401; ci += 2) {
+                calib_buf[ci]     = pic_calib1[ci + 1]; /* swap: low byte first */
+                calib_buf[ci + 1] = pic_calib1[ci];     /* then high byte */
+            }
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 401);
+            gw(SM0_DATAOUT, calib_buf[0]);
+            gw(SM0_STATUS, 0);
+            for (ci = 1; ci < 401; ci++) {
+                { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+                udelay(1000);
+                gw(SM0_DATAOUT, calib_buf[ci]);
+            }
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+            mdelay(5);
+
+            /* Step 2: Table 2 — byte-swap */
+            calib_buf[0] = pic_calib2[0]; /* cmd = 0x2E */
+            for (ci = 1; ci < 401; ci += 2) {
+                calib_buf[ci]     = pic_calib2[ci + 1];
+                calib_buf[ci + 1] = pic_calib2[ci];
+            }
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 401);
+            gw(SM0_DATAOUT, calib_buf[0]);
+            gw(SM0_STATUS, 0);
+            for (ci = 1; ci < 401; ci++) {
+                { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+                udelay(1000);
+                gw(SM0_DATAOUT, calib_buf[ci]);
+            }
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+        }
+
+        /* Restore ALL SM0 registers for Linux I2C driver */
+        gw(SM0_CTL1, saved_ctl1); udelay(10);
+        gw(SM0_CFG, saved_cfg); udelay(10);
+
+        pr_info("lcd_drv: PIC calibration sent (stock protocol)\n");
+
+        /* Wait for PIC to process calibration */
+        mdelay(2000);
+
+        /* Send battery read command {0x2F, 0x00, 0x02} via palmbus write */
+        {
+            u8 bat_cmd[3] = { 0x2F, 0x00, 0x02 };
+            u8 bat_resp[17] = {0};
+
+            gw(SM0_CTL1, 0x90644042); udelay(10);
+            gw(SM0_CFG, 0xFA);
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 3);
+            gw(SM0_DATAOUT, bat_cmd[0]);
+            gw(SM0_STATUS, 0);
+            for (ci = 1; ci < 3; ci++) {
+                { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x02) break; udelay(10); } }
+                udelay(1000);
+                gw(SM0_DATAOUT, bat_cmd[ci]);
+            }
+            { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+            mdelay(200);
+
+            /* Read 17 bytes using NEW i2c-mt7621 register interface (6.12+)
+             * Registers at base 0x900:
+             *   SM0CTL0 = 0x940, SM0CTL1 = 0x944
+             *   SM0D0 = 0x950, SM0D1 = 0x954
+             * Protocol: START → addr+R → READ chunks → STOP
+             */
+            /* Restore SM0CTL0 for normal operation */
+            gw(NEW_CTL0, saved_ctl1); udelay(10);
+
+            /* Wait idle */
+            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+
+            /* START */
+            gw(NEW_CTL1, N_START | N_TRI);
+            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+
+            /* Write address + R bit */
+            gw(NEW_D0, (PIC_ADDR << 1) | 1);
+            gw(NEW_CTL1, N_WRITE | N_TRI | N_PGLEN(1));
+            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+
+            /* Read 17 bytes in 8+8+1 chunks */
+            {
+                int rd_off = 0;
+                int remaining = 17;
+                while (remaining > 0) {
+                    int chunk = (remaining > 8) ? 8 : remaining;
+                    u32 cmd = (remaining > 8) ? N_READ : N_READ_L;
+                    u32 d0, d1;
+
+                    gw(NEW_CTL1, cmd | N_TRI | N_PGLEN(chunk));
+                    { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+
+                    d0 = gr(NEW_D0);
+                    d1 = gr(NEW_D1);
+                    memcpy(&bat_resp[rd_off], &d0, chunk > 4 ? 4 : chunk);
+                    if (chunk > 4)
+                        memcpy(&bat_resp[rd_off + 4], &d1, chunk - 4);
+
+                    rd_off += chunk;
+                    remaining -= chunk;
+                }
+            }
+
+            /* STOP */
+            gw(NEW_CTL1, N_STOP | N_TRI);
+            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+
+            pr_info("lcd_drv: PIC raw [17]: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                    bat_resp[0], bat_resp[1], bat_resp[2], bat_resp[3],
+                    bat_resp[4], bat_resp[5], bat_resp[6], bat_resp[7],
+                    bat_resp[8], bat_resp[9], bat_resp[10], bat_resp[11],
+                    bat_resp[12], bat_resp[13], bat_resp[14], bat_resp[15],
+                    bat_resp[16]);
+            {
+                /* Parse: try stock format interpretation */
+                int raw_adc = (bat_resp[0] << 8) | bat_resp[1];
+                int vref = bat_resp[2];
+                int c_pct = (signed char)bat_resp[6];
+                int f_pct = (signed char)bat_resp[7];
+                int batstat = bat_resp[10];
+                int batcount = bat_resp[11];
+                pr_info("lcd_drv: PIC parse: raw=%d(0x%03x) vref=%d C%%=%d F%%=%d BatStat=%d BatCnt=%d\n",
+                        raw_adc, raw_adc, vref, c_pct, f_pct, batstat, batcount);
+            }
+            memcpy(pic_battery_raw, bat_resp, 17);
+            pic_battery_valid = (bat_resp[0] != 0xAA && bat_resp[0] != 0xFF && bat_resp[0] != 0x55);
+        }
     }
-#endif  /* PIC DISABLED */
 
-    /* Register boot console — show kernel messages on LCD */
-    register_console(&lcd_con);
-
-    /* Start render thread (shows boot console) */
+    /* Start render thread */
     render_thread = kthread_run(render_fn, NULL, "lcd_render");
 
-    /* Touch thread NOT started here — deferred to "touch_start" command */
+    /* Start touch thread */
+    touch_thread = kthread_run(touch_fn, NULL, "lcd_touch");
 
-    pr_info("lcd_drv v%s: /dev/lcd ready (fb=%dx%d, %d bytes, fps=%d)\n",
-            LCD_DRV_VERSION, LCD_W, LCD_H, FB_SIZE, target_fps);
+    pr_info("lcd_drv: /dev/lcd ready (fb=%dx%d, %d bytes, fps=%d)\n",
+            LCD_W, LCD_H, FB_SIZE, target_fps);
     return 0;
 }
 
 static void __exit lcd_drv_exit(void)
 {
-    unregister_console(&lcd_con);
     if (touch_thread) kthread_stop(touch_thread);
     if (render_thread) kthread_stop(render_thread);
     if (touch_i2c_adap) i2c_put_adapter(touch_i2c_adap);
     misc_deregister(&lcd_dev);
-    /* lcd_gpio_free_all() removed — no gpio_request */
     vfree(framebuffer);
     kfree(fb_pages);
     if (gpio_base) iounmap(gpio_base);
