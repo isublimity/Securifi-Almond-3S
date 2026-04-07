@@ -1,0 +1,1214 @@
+[  418.545783] lcd_drv: PIC bat: ff ba 74 02 04 00
+[  431.049414] lcd_drv: PIC bat: ff b9 72 02 04 00
+[  443.456218] lcd_drv: PIC bat: ff ba 74 02 04 00
+[  455.817188] lcd_drv: PIC bat: ff b9 72 02 04 00
+[  468.136609] lcd_drv: PIC bat: ff ba 74 02 04 00
+[  480.406722] lcd_drv: PIC bat: ff b8 70 02 04 00
+[  492.719534] lcd_drv: PIC bat: ff b7 6e 02 04 00
+[  505.187160] lcd_drv: PIC bat: ff b7 6e 02 04 00
+[  517.497585] lcd_drv: PIC bat: ff b8 70 02 04 00
+[  529.827525] lcd_drv: PIC bat: ff b7 6e 02 04 00
+[  542.227665] lcd_drv: PIC bat: ff b7 6e 02 04 00
+[  554.468104] lcd_drv: PIC bat: ff b9 72 02 04 00
+[  566.677851] lcd_drv: PIC bat: ff b9 72 02 04 00
+[  578.928107] lcd_drv: PIC bat: ff b9 72 02 04 00
+[  591.179284] lcd_drv: PIC bat: ff b8 70 02 04 00
+[  603.458768] lcd_drv: PIC bat: ff b7 6e 02 04 00
+[  615.597947] lcd_drv: PIC bat: ff b9 72 02 04 00
+[  627.917928] lcd_drv: PIC bat: ff b9 72 02 04 00
+[  640.147925] lcd_drv: PIC bat: ff b9 72 02 04 00
+[  652.347948] lcd_drv: PIC bat: ff b9 72 02 04 00
+[  664.607819] lcd_drv: PIC bat: ff b8 70 02 04 00
+[  676.838368] lcd_drv: PIC bat: ff b8 70 02 04 00
+[  689.221445] lcd_drv: PIC bat: ff b7 6e 02 04 00
+[  701.531167] lcd_drv: PIC bat: ff b6 6c 02 04 00
+[  713.808234] lcd_drv: PIC bat: ff b6 6c 02 04 00
+[  726.019234] lcd_drv: PIC bat: ff b7 6e 02 04 00
+[  738.218547] lcd_drv: PIC bat: ff b5 6a 02 04 00
+[  750.478578] lcd_drv: PIC bat: ff b6 6c 02 04 00
+[  762.760342] lcd_drv: PIC bat: ff b6 6c 02 04 00
+[  774.980510] lcd_drv: PIC bat: ff b6 6c 02 04 00
+[  787.323656] lcd_drv: PIC bat: ff b5 6a 02 04 00
+[  799.570547] lcd_drv: PIC bat: ff b6 6c 02 04 00
+[  811.820511] lcd_drv: PIC bat: ff b6 6c 02 04 00
+[  824.130526] lcd_drv: PIC bat: ff b6 6c 02 04 00
+[  836.410944] lcd_drv: PIC bat: ff b5 6a 02 04 00
+[  848.681843] lcd_drv: PIC bat: ff b6 6c 02 04 00
+[  860.850225] lcd_drv: PIC bat: ff b6 6c 02 04 00
+[  873.070230] lcd_drv: PIC bat: ff b6 6c 02 04 00
+[  885.360172] lcd_drv: PIC bat: ff b5 6a 02 04 00
+[  897.546945] lcd_drv: PIC bat: ff b5 6a 02 04 00
+[  909.871632] lcd_drv: PIC bat: ff b5 6a 02 04 00
+[  922.182016] lcd_drv: PIC bat: ff b4 68 02 04 00
+[  934.500273] lcd_drv: PIC bat: ff b3 66 02 04 00
+[  946.761194] lcd_drv: PIC bat: ff b3 66 02 04 00
+[  959.130694] lcd_drv: PIC bat: ff b3 66 02 04 00
+[  971.444016] lcd_drv: PIC bat: ff b3 66 02 04 00
+[  984.020927] lcd_drv: PIC bat: ff b4 68 02 04 00
+[  996.591133] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1009.190831] lcd_drv: PIC bat: ff b3 66 02 04 00
+[ 1021.690327] lcd_drv: PIC bat: ff b3 66 02 04 00
+[ 1034.000347] lcd_drv: PIC bat: ff b3 66 02 04 00
+[ 1046.490495] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1058.780226] lcd_drv: PIC bat: ff b3 66 02 04 00
+[ 1071.161035] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1083.630542] lcd_drv: PIC bat: ff b3 66 02 04 00
+[ 1095.979755] lcd_drv: PIC bat: ff b3 66 02 04 00
+[ 1108.330232] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1120.620036] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1132.949692] lcd_drv: PIC bat: ff b3 66 02 04 00
+[ 1145.340159] lcd_drv: PIC bat: ff b3 66 02 04 00
+[ 1157.719524] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1169.929708] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1182.329972] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1194.720031] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1207.041013] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1219.371199] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1231.701922] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1244.045305] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1256.273404] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1268.581722] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1280.922627] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1293.192002] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1305.374034] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1317.602143] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1329.846496] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1342.043048] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1354.274382] lcd_drv: PIC bat: ff b2 64 02 04 00
+[ 1366.434934] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1378.623425] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1391.111422] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1403.364689] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1415.623480] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1427.912792] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1440.143481] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1452.373034] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1464.634623] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1476.834250] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1489.082715] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1501.324246] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1513.542380] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1525.734589] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1538.062218] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1550.295026] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1562.512370] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1574.762115] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1587.013168] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1599.291847] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1611.682291] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1623.981987] lcd_drv: PIC bat: ff b1 62 02 04 00
+[ 1636.192840] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1648.433173] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1660.724147] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1672.961545] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1685.181620] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1697.453905] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1709.682536] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1722.054016] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1734.365578] lcd_drv: PIC bat: ff b0 60 02 04 00
+[ 1746.608545] lcd_drv: PIC bat: ff af 5e 02 04 00
+[ 1758.888492] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 1771.119738] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 1783.347406] lcd_drv: PIC bat: ff af 5e 02 04 00
+[ 1795.588322] lcd_drv: PIC bat: ff af 5e 02 04 00
+[ 1807.959498] lcd_drv: PIC bat: ff af 5e 02 04 00
+[ 1820.189536] lcd_drv: PIC bat: ff af 5e 02 04 00
+[ 1832.422073] lcd_drv: PIC bat: ff af 5e 02 04 00
+[ 1844.675019] lcd_drv: PIC bat: ff a9 52 02 04 00
+[ 1856.913346] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 1869.182991] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 1881.460978] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 1893.763417] lcd_drv: PIC bat: ff af 5e 02 04 00
+[ 1905.985702] lcd_drv: PIC bat: ff ad 5a 02 04 00
+[ 1918.274910] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 1930.581732] lcd_drv: PIC bat: ff a9 52 02 04 00
+[ 1942.848975] lcd_drv: PIC bat: ff ac 58 02 04 00
+[ 1955.006362] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 1967.297368] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 1979.526807] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 1991.795941] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 2004.065958] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 2016.260358] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 2028.535950] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 2040.706087] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 2052.936882] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 2065.184830] lcd_drv: PIC bat: ff ad 5a 02 04 00
+[ 2077.425886] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2089.673873] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 2101.825953] lcd_drv: PIC bat: ff ad 5a 02 04 00
+[ 2114.093571] lcd_drv: PIC bat: ff ae 5c 02 04 00
+[ 2126.275031] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2138.613397] lcd_drv: PIC bat: ff ac 58 02 04 00
+[ 2150.822834] lcd_drv: PIC bat: ff ad 5a 02 04 00
+[ 2163.163649] lcd_drv: PIC bat: ff ad 5a 02 04 00
+[ 2175.553016] lcd_drv: PIC bat: ff ac 58 02 04 00
+[ 2187.872333] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2200.132534] lcd_drv: PIC bat: ff ad 5a 02 04 00
+[ 2212.382039] lcd_drv: PIC bat: ff ac 58 02 04 00
+[ 2224.661969] lcd_drv: PIC bat: ff ac 58 02 04 00
+[ 2236.973016] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2249.276137] lcd_drv: PIC bat: ff ac 58 02 04 00
+[ 2261.513419] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2273.792900] lcd_drv: PIC bat: ff ac 58 02 04 00
+[ 2286.131531] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2298.305101] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2310.541230] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2322.741575] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2335.051358] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2347.380909] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2359.541202] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2371.734435] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2384.011423] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2396.184876] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2408.522405] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2420.750497] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2432.981827] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2445.290680] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2457.572381] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2469.911233] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2482.183429] lcd_drv: PIC bat: ff a9 52 02 04 00
+[ 2494.390253] lcd_drv: PIC bat: ff a9 52 02 04 00
+[ 2506.611368] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2518.830565] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2531.091711] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2543.260907] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2555.451105] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2567.691254] lcd_drv: PIC bat: ff a9 52 02 04 00
+[ 2579.971467] lcd_drv: PIC bat: ff aa 54 02 04 00
+[ 2592.192206] lcd_drv: PIC bat: ff a9 52 02 04 00
+[ 2604.511784] lcd_drv: PIC bat: ff ab 56 02 04 00
+[ 2616.672040] lcd_drv: PIC bat: ff a9 52 02 04 00
+[ 2629.002276] lcd_drv: PIC bat: ff a9 52 02 04 00
+[ 2641.394046] lcd_drv: PIC bat: ff a8 50 02 04 00
+[ 2653.582653] lcd_drv: PIC bat: ff a9 52 02 04 00
+[ 2665.933225] lcd_drv: PIC bat: ff a8 50 02 04 00
+[ 2678.223093] lcd_drv: PIC bat: ff a8 50 02 04 00
+[ 2690.593319] lcd_drv: PIC bat: ff a8 50 02 04 00
+[ 2702.884636] lcd_drv: PIC bat: ff a8 50 02 04 00
+[ 2715.104753] lcd_drv: PIC bat: ff a7 4e 02 04 00
+[ 2727.337658] lcd_drv: PIC bat: ff a7 4e 02 04 00
+[ 2739.545532] lcd_drv: PIC bat: ff a8 50 02 04 00
+[ 2751.944049] lcd_drv: PIC bat: ff a7 4e 02 04 00
+[ 2764.183691] lcd_drv: PIC bat: ff a7 4e 02 04 00
+[ 2776.329738] lcd_drv: PIC bat: ff a6 4c 02 04 08
+[ 2788.812951] lcd_drv: PIC bat: ff a5 4a 02 04 00
+[ 2801.248924] lcd_drv: PIC bat: ff a4 48 02 04 00
+[ 2813.712456] lcd_drv: PIC bat: ff a5 4a 02 04 00
+[ 2826.069023] lcd_drv: PIC bat: ff a5 4a 02 04 00
+[ 2838.591845] lcd_drv: PIC bat: ff a5 4a 02 04 00
+[ 2850.931757] lcd_drv: PIC bat: ff a4 48 02 04 00
+[ 2863.314413] lcd_drv: PIC bat: ff a5 4a 02 04 00
+[ 2875.791026] lcd_drv: PIC bat: ff a5 4a 02 04 00
+[ 2888.201057] lcd_drv: PIC bat: ff a4 48 02 04 00
+[ 2900.760408] lcd_drv: PIC bat: ff a4 48 02 04 00
+[ 2913.300690] lcd_drv: PIC bat: ff a4 48 02 04 00
+[ 2925.680079] lcd_drv: PIC bat: ff a4 48 02 04 00
+[ 2938.022082] lcd_drv: PIC bat: ff a4 48 02 04 00
+[ 2950.509503] lcd_drv: PIC bat: ff a4 48 02 04 00
+[ 2962.819413] lcd_drv: PIC bat: ff a4 48 02 04 00
+[ 2975.108823] lcd_drv: PIC bat: ff a4 48 02 04 00
+[ 2987.369176] lcd_drv: PIC bat: ff a3 46 02 04 00
+[ 2999.708448] lcd_drv: PIC bat: ff a3 46 02 04 00
+[ 3011.968163] lcd_drv: PIC bat: ff a5 4a 02 04 00
+[ 3024.288636] lcd_drv: PIC bat: ff a3 46 02 04 00
+[ 3036.689406] lcd_drv: PIC bat: ff a3 46 02 04 00
+[ 3049.030216] lcd_drv: PIC bat: ff a2 44 02 04 00
+[ 3061.438109] lcd_drv: PIC bat: ff a2 44 02 04 00
+[ 3073.700517] lcd_drv: PIC bat: ff a2 44 02 04 00
+[ 3086.120667] lcd_drv: PIC bat: ff a0 40 02 04 00
+[ 3098.348520] lcd_drv: PIC bat: ff a2 44 02 04 00
+[ 3110.588020] lcd_drv: PIC bat: ff a2 44 02 04 00
+[ 3122.817980] lcd_drv: PIC bat: ff a3 46 02 04 00
+[ 3135.039085] lcd_drv: PIC bat: ff a2 44 02 04 00
+[ 3147.217979] lcd_drv: PIC bat: ff a2 44 02 04 00
+[ 3159.450945] lcd_drv: PIC bat: ff a2 44 02 04 00
+[ 3171.707602] lcd_drv: PIC bat: ff a2 44 02 04 00
+[ 3183.917846] lcd_drv: PIC bat: ff a2 44 02 04 00
+[ 3196.180247] lcd_drv: PIC bat: ff a1 42 02 04 00
+[ 3208.397634] lcd_drv: PIC bat: ff a1 42 02 04 00
+[ 3220.677918] lcd_drv: PIC bat: ff a1 42 02 04 00
+[ 3232.810724] lcd_drv: PIC bat: ff a1 42 02 04 00
+[ 3244.990174] lcd_drv: PIC bat: ff a1 42 02 04 00
+[ 3257.158535] lcd_drv: PIC bat: ff a1 42 02 04 00
+[ 3269.367385] lcd_drv: PIC bat: ff a3 46 02 04 00
+[ 3281.667538] lcd_drv: PIC bat: ff a1 42 02 04 00
+[ 3293.907547] lcd_drv: PIC bat: ff a1 42 02 04 00
+[ 3306.098775] lcd_drv: PIC bat: ff 9f 3e 02 04 00
+[ 3318.407077] lcd_drv: PIC bat: ff a0 40 02 04 00
+[ 3330.648348] lcd_drv: PIC bat: ff 9f 3e 02 04 00
+[ 3342.837552] lcd_drv: PIC bat: ff 9f 3e 02 04 00
+[ 3355.097460] lcd_drv: PIC bat: ff 9f 3e 00 03 ff
+[ 3367.399525] lcd_drv: PIC bat: ff 9e 3c 02 04 00
+[ 3379.718251] lcd_drv: PIC bat: ff 9e 3c 02 04 00
+[ 3392.034819] lcd_drv: PIC bat: ff 9e 3c 02 04 00
+[ 3404.256775] lcd_drv: PIC bat: ff 9e 3c 02 04 00
+[ 3416.546748] lcd_drv: PIC bat: ff 9f 3e 02 04 00
+[ 3428.746708] lcd_drv: PIC bat: ff 9e 3c 02 04 00
+[ 3440.999540] lcd_drv: PIC bat: ff a0 40 02 04 00
+[ 3453.166666] lcd_drv: PIC bat: ff 9e 3c 02 04 00
+[ 3465.356496] lcd_drv: PIC bat: ff 9e 3c 02 04 00
+[ 3477.556521] lcd_drv: PIC bat: ff 9e 3c 02 04 00
+[ 3489.786440] lcd_drv: PIC bat: ff 9c 38 02 04 00
+[ 3501.996447] lcd_drv: PIC bat: ff 9e 3c 02 04 00
+[ 3514.192856] lcd_drv: PIC bat: ff 9e 3c 02 04 00
+[ 3526.554906] lcd_drv: PIC bat: ff 9d 3a 02 04 ff
+[ 3538.876363] lcd_drv: PIC bat: ff 9e 3c 02 04 00
+[ 3551.026635] lcd_drv: PIC bat: ff 9d 3a 02 04 00
+[ 3563.336197] lcd_drv: PIC bat: ff 9b 36 02 04 00
+[ 3575.627548] lcd_drv: PIC bat: ff 9d 3a 02 04 00
+[ 3587.876064] lcd_drv: PIC bat: ff 9d 3a 02 04 00
+[ 3600.099209] lcd_drv: PIC bat: ff 9d 3a 02 04 00
+[ 3612.366025] lcd_drv: PIC bat: ff 9d 3a 02 04 00
+[ 3624.706028] lcd_drv: PIC bat: ff 9d 3a 02 04 00
+[ 3636.899803] lcd_drv: PIC bat: ff 9b 36 02 04 00
+[ 3649.125775] lcd_drv: PIC bat: ff 9c 38 02 04 00
+[ 3661.399820] lcd_drv: PIC bat: ff 9c 38 02 04 00
+[ 3673.645572] lcd_drv: PIC bat: ff 9c 38 02 04 00
+[ 3685.927442] lcd_drv: PIC bat: ff 9b 36 02 04 00
+[ 3698.155439] lcd_drv: PIC bat: ff 9b 36 02 04 00
+[ 3710.315726] lcd_drv: PIC bat: ff 9c 38 02 04 00
+[ 3722.525383] lcd_drv: PIC bat: ff 9c 38 02 04 00
+[ 3734.685317] lcd_drv: PIC bat: ff 9b 36 02 04 00
+[ 3747.005258] lcd_drv: PIC bat: ff 9c 38 02 04 00
+[ 3759.265125] lcd_drv: PIC bat: ff 9b 36 02 04 00
+[ 3771.545878] lcd_drv: PIC bat: ff 9a 34 02 04 00
+[ 3783.736709] lcd_drv: PIC bat: ff 9a 34 02 04 00
+[ 3796.006006] lcd_drv: PIC bat: ff 9a 34 02 04 00
+[ 3808.315005] lcd_drv: PIC bat: ff 9a 34 02 04 00
+[ 3820.565151] lcd_drv: PIC bat: ff 9a 34 02 04 00
+[ 3832.865466] lcd_drv: PIC bat: ff 9a 34 02 04 00
+[ 3845.156676] lcd_drv: PIC bat: ff 9a 34 02 04 00
+[ 3857.405088] lcd_drv: PIC bat: ff 9a 34 02 04 00
+[ 3869.725001] lcd_drv: PIC bat: ff 9c 38 02 04 00
+[ 3882.004935] lcd_drv: PIC bat: ff 9a 34 02 04 00
+[ 3894.294721] lcd_drv: PIC bat: ff 99 32 02 04 00
+[ 3906.541173] lcd_drv: PIC bat: ff 9a 34 02 04 00
+[ 3918.754696] lcd_drv: PIC bat: ff 9a 34 02 04 00
+[ 3930.899635] lcd_drv: PIC bat: ff 99 32 02 04 00
+[ 3943.094852] lcd_drv: PIC bat: ff 95 2a 02 04 00
+[ 3955.324547] lcd_drv: PIC bat: ff 99 32 02 04 00
+[ 3967.515215] lcd_drv: PIC bat: ff 99 32 02 04 00
+[ 3979.676022] lcd_drv: PIC bat: ff 99 32 02 04 00
+[ 3991.944964] lcd_drv: PIC bat: ff 99 32 02 04 00
+[ 4004.114515] lcd_drv: PIC bat: ff 99 32 02 04 00
+[ 4016.326881] lcd_drv: PIC bat: ff 98 30 02 04 00
+[ 4028.504382] lcd_drv: PIC bat: ff 98 30 02 04 00
+[ 4040.766345] lcd_drv: PIC bat: ff 98 30 02 04 00
+[ 4053.054410] lcd_drv: PIC bat: ff 98 30 02 04 00
+[ 4065.324958] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4077.574430] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4089.784312] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4102.084236] lcd_drv: PIC bat: ff 98 30 02 04 00
+[ 4114.394147] lcd_drv: PIC bat: ff 98 30 02 04 00
+[ 4126.604271] lcd_drv: PIC bat: ff 98 30 02 04 00
+[ 4138.784129] lcd_drv: PIC bat: ff 98 30 02 04 00
+[ 4150.954285] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4163.123993] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4175.365962] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4187.544040] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4199.753927] lcd_drv: PIC bat: ff 99 32 02 04 00
+[ 4211.924318] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4224.084035] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4236.267579] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4248.693844] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4261.023846] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4273.323849] lcd_drv: PIC bat: ff 98 30 02 04 00
+[ 4285.503770] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4297.793824] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4310.093858] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4322.343779] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4334.538592] lcd_drv: PIC bat: ff 95 2a 02 04 00
+[ 4346.743707] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4359.054579] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 4371.293589] lcd_drv: PIC bat: ff 95 2a 02 04 00
+[ 4383.453868] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4395.693882] lcd_drv: PIC bat: ff 94 28 02 04 00
+[ 4407.943609] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4420.113548] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4432.293814] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4444.453637] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4456.673566] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4468.973473] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4481.163685] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4493.309069] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4505.543543] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4517.773547] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 4529.953639] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4542.133440] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4554.333426] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4566.573352] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4578.803443] lcd_drv: PIC bat: ff 96 2c 02 04 00
+[ 4591.083398] lcd_drv: PIC bat: ff 97 2e 02 04 00
+[ 4603.363722] lcd_drv: PIC bat: ff 95 2a 02 04 00
+[ 4615.724978] lcd_drv: PIC bat: ff 95 2a 02 04 00
+[ 4628.013409] lcd_drv: PIC bat: ff 95 2a 02 04 00
+[ 4640.263425] lcd_drv: PIC bat: ff 95 2a 02 04 00
+[ 4652.485210] lcd_drv: PIC bat: ff 94 28 02 04 00
+[ 4664.804151] lcd_drv: PIC bat: ff 95 2a 02 04 00
+[ 4677.113238] lcd_drv: PIC bat: ff 94 28 02 04 00
+[ 4689.394765] lcd_drv: PIC bat: ff 94 28 02 04 00
+[ 4701.533046] lcd_drv: PIC bat: ff 94 28 02 04 00
+[ 4713.764563] lcd_drv: PIC bat: ff 95 2a 02 04 00
+[ 4726.013032] lcd_drv: PIC bat: ff 95 2a 02 04 00
+[ 4738.222995] lcd_drv: PIC bat: ff 94 28 02 04 00
+[ 4750.473083] lcd_drv: PIC bat: ff 95 2a 02 04 00
+[ 4762.703306] lcd_drv: PIC bat: ff 94 28 02 04 00
+[ 4774.884739] lcd_drv: PIC bat: ff 94 28 02 04 00
+[ 4787.273758] lcd_drv: PIC bat: ff 94 28 02 04 00
+[ 4799.594226] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 4811.804791] lcd_drv: PIC bat: ff 94 28 02 04 00
+[ 4823.994105] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 4836.272913] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 4848.442982] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 4860.693407] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 4872.932988] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 4885.122660] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 4897.402779] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 4909.642955] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 4921.923348] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 4934.173168] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 4946.342617] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 4958.522903] lcd_drv: PIC bat: ff 94 28 02 04 00
+[ 4970.652635] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 4982.842546] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 4995.053002] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 5007.172574] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 5019.352493] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 5031.552498] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5043.682503] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5055.932446] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5068.082447] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 5080.222428] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5092.372459] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5104.512487] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5116.662325] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5128.792338] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5140.952365] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 5153.082206] lcd_drv: PIC bat: ff 93 26 02 04 00
+[ 5165.292202] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5177.432180] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5189.582409] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5201.672250] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5213.842246] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5225.962182] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 5238.141933] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 5250.314723] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5262.491885] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 5274.611841] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 5286.861832] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 5299.031769] lcd_drv: PIC bat: ff 92 24 02 04 00
+[ 5311.141768] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 5323.351651] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 5335.471690] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 5347.652134] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5359.891610] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5372.111566] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 5384.251545] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5396.381412] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 5408.551524] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5420.691450] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5432.881416] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5445.051325] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5457.261217] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5469.431419] lcd_drv: PIC bat: ff 91 22 02 04 00
+[ 5481.641166] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5493.771153] lcd_drv: PIC bat: ff 8f 1e 02 04 00
+[ 5505.921139] lcd_drv: PIC bat: ff 8f 1e 02 04 00
+[ 5518.031124] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5530.141106] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5542.331016] lcd_drv: PIC bat: ff 8f 1e 02 04 00
+[ 5554.511056] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5566.671000] lcd_drv: PIC bat: ff 8f 1e 02 04 00
+[ 5578.861020] lcd_drv: PIC bat: ff 90 20 02 04 00
+[ 5591.041135] lcd_drv: PIC bat: ff 8f 1e 02 04 00
+[ 5603.210878] lcd_drv: PIC bat: ff 8f 1e 02 04 00
+[ 5615.430840] lcd_drv: PIC bat: ff 8f 1e 02 04 00
+[ 5627.630823] lcd_drv: PIC bat: ff 8f 1e 02 04 00
+[ 5639.760863] lcd_drv: PIC bat: ff 8e 1c 02 04 00
+[ 5651.870802] lcd_drv: PIC bat: ff 8f 1e 02 04 00
+[ 5664.081069] lcd_drv: PIC bat: ff 8f 1e 02 04 00
+[ 5676.240852] lcd_drv: PIC bat: ff 8e 1c 02 04 00
+[ 5688.440762] lcd_drv: PIC bat: ff 8f 1e 02 04 00
+[ 5700.600869] lcd_drv: PIC bat: ff 8e 1c 02 04 00
+[ 5712.790883] lcd_drv: PIC bat: ff 8e 1c 02 04 00
+[ 5724.912403] lcd_drv: PIC bat: ff 8d 1a 02 04 00
+[ 5737.060925] lcd_drv: PIC bat: ff 8e 1c 02 04 00
+[ 5749.221006] lcd_drv: PIC bat: ff 8e 1c 02 04 00
+[ 5761.421270] lcd_drv: PIC bat: ff 8d 1a 02 04 00
+[ 5773.560650] lcd_drv: PIC bat: ff 8d 1a 02 04 00
+[ 5785.740605] lcd_drv: PIC bat: ff 8e 1c 02 04 00
+[ 5797.910542] lcd_drv: PIC bat: ff 8d 1a 02 04 00
+[ 5810.080853] lcd_drv: PIC bat: ff 8d 1a 02 04 00
+[ 5822.240596] lcd_drv: PIC bat: ff 8e 1c 02 04 00
+[ 5834.440779] lcd_drv: PIC bat: ff 8e 1c 02 04 00
+[ 5846.675996] lcd_drv: PIC bat: ff 8c 18 02 04 00
+[ 5858.930603] lcd_drv: PIC bat: ff 8e 1c 02 04 00
+[ 5871.100546] lcd_drv: PIC bat: ff 8d 1a 02 04 00
+[ 5883.280673] lcd_drv: PIC bat: ff 8d 1a 02 04 00
+[ 5895.470479] lcd_drv: PIC bat: ff 8d 1a 02 04 00
+[ 5907.670467] lcd_drv: PIC bat: ff 8c 18 02 04 00
+[ 5920.000489] lcd_drv: PIC bat: ff 8d 1a 02 04 00
+[ 5932.220590] lcd_drv: PIC bat: ff 8d 1a 02 04 00
+[ 5944.350430] lcd_drv: PIC bat: ff 8c 18 02 04 00
+[ 5956.480536] lcd_drv: PIC bat: ff 8d 1a 02 04 00
+[ 5968.680508] lcd_drv: PIC bat: ff 8c 18 02 04 00
+[ 5980.840451] lcd_drv: PIC bat: ff 8c 18 02 04 00
+[ 5993.030391] lcd_drv: PIC bat: ff 8c 18 02 04 00
+[ 6005.230857] lcd_drv: PIC bat: ff 8b 16 02 04 00
+[ 6017.340558] lcd_drv: PIC bat: ff 8c 18 02 04 00
+[ 6029.490552] lcd_drv: PIC bat: ff 8c 18 02 04 00
+[ 6041.620330] lcd_drv: PIC bat: ff 8c 18 02 04 00
+[ 6053.830378] lcd_drv: PIC bat: ff 8b 16 02 04 00
+[ 6066.030332] lcd_drv: PIC bat: ff 8b 16 02 04 00
+[ 6078.280340] lcd_drv: PIC bat: ff 8b 16 02 04 00
+[ 6090.490333] lcd_drv: PIC bat: ff 8c 18 02 04 00
+[ 6102.650260] lcd_drv: PIC bat: ff 8c 18 02 04 00
+[ 6114.820363] lcd_drv: PIC bat: ff 8b 16 02 04 00
+[ 6126.980377] lcd_drv: PIC bat: ff 8b 16 02 04 00
+[ 6139.090953] lcd_drv: PIC bat: ff 8b 16 02 04 00
+[ 6151.220251] lcd_drv: PIC bat: ff 8b 16 02 04 00
+[ 6163.392189] lcd_drv: PIC bat: ff 8a 14 02 04 00
+[ 6175.540246] lcd_drv: PIC bat: ff 8b 16 02 04 00
+[ 6187.690151] lcd_drv: PIC bat: ff 8b 16 02 04 00
+[ 6199.850050] lcd_drv: PIC bat: ff 8a 14 02 04 00
+[ 6212.070000] lcd_drv: PIC bat: ff 8a 14 02 04 00
+[ 6224.339987] lcd_drv: PIC bat: ff 8a 14 02 04 00
+[ 6236.459844] lcd_drv: PIC bat: ff 8a 14 02 04 00
+[ 6248.569777] lcd_drv: PIC bat: ff 8a 14 02 04 00
+[ 6260.789636] lcd_drv: PIC bat: ff 89 12 02 04 00
+[ 6272.959538] lcd_drv: PIC bat: ff 8a 14 02 04 00
+[ 6285.119488] lcd_drv: PIC bat: ff 8a 14 02 04 00
+[ 6297.350009] lcd_drv: PIC bat: ff 89 12 00 01 ff
+[ 6309.519411] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6321.749367] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6333.869545] lcd_drv: PIC bat: ff 89 12 02 04 00
+[ 6346.019469] lcd_drv: PIC bat: ff 89 12 02 04 00
+[ 6358.099362] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6370.330058] lcd_drv: PIC bat: ff 89 12 02 04 00
+[ 6382.489509] lcd_drv: PIC bat: ff 89 12 02 04 00
+[ 6394.599408] lcd_drv: PIC bat: ff 89 12 02 04 00
+[ 6406.759375] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6418.989332] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6431.170356] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6443.339323] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6455.469488] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6467.629260] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6479.819357] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6491.989252] lcd_drv: PIC bat: ff 87 0e 02 04 00
+[ 6504.109366] lcd_drv: PIC bat: ff 87 0e 02 04 00
+[ 6516.189346] lcd_drv: PIC bat: ff 87 0e 02 04 00
+[ 6528.329480] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6540.449351] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6552.599262] lcd_drv: PIC bat: ff 87 0e 02 04 00
+[ 6564.779465] lcd_drv: PIC bat: ff 88 10 02 04 00
+[ 6576.989219] lcd_drv: PIC bat: ff 86 0c 02 04 00
+[ 6589.199256] lcd_drv: PIC bat: ff 86 0c 02 04 00
+[ 6601.389255] lcd_drv: PIC bat: ff 86 0c 02 04 00
+[ 6613.629449] lcd_drv: PIC bat: ff 86 0c 02 04 00
+[ 6625.789377] lcd_drv: PIC bat: ff 86 0c 02 04 00
+[ 6637.989314] lcd_drv: PIC bat: ff 86 0c 02 04 00
+[ 6650.159292] lcd_drv: PIC bat: ff 87 0e 02 04 00
+[ 6662.349254] lcd_drv: PIC bat: ff 86 0c 02 04 00
+[ 6674.489282] lcd_drv: PIC bat: ff 87 0e 02 04 00
+[ 6686.699349] lcd_drv: PIC bat: ff 86 0c 02 04 00
+[ 6698.919348] lcd_drv: PIC bat: ff 86 0c 02 04 00
+[ 6711.249210] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6723.419254] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6735.589297] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6747.749414] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6759.899373] lcd_drv: PIC bat: ff 86 0c 02 04 00
+[ 6771.979313] lcd_drv: PIC bat: ff 86 0c 02 04 00
+[ 6784.069321] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6796.239234] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6808.419237] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6820.649425] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6832.809321] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6844.979292] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6857.149356] lcd_drv: PIC bat: ff 84 08 02 04 00
+[ 6869.329354] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6881.489493] lcd_drv: PIC bat: ff 84 08 02 04 00
+[ 6893.559465] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6905.769482] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6917.969712] lcd_drv: PIC bat: ff 85 0a 02 04 00
+[ 6930.139797] lcd_drv: PIC bat: ff 84 08 02 04 00
+[ 6942.239596] lcd_drv: PIC bat: ff 83 06 02 04 00
+[ 6954.399877] lcd_drv: PIC bat: ff 84 08 02 04 00
+[ 6966.579582] lcd_drv: PIC bat: ff 84 08 02 04 00
+[ 6978.789646] lcd_drv: PIC bat: ff 83 06 02 04 00
+[ 6990.909661] lcd_drv: PIC bat: ff 83 06 02 04 00
+[ 7003.079803] lcd_drv: PIC bat: ff 84 08 02 04 00
+[ 7015.209895] lcd_drv: PIC bat: ff 83 06 02 04 00
+[ 7027.450002] lcd_drv: PIC bat: ff 83 06 02 04 00
+[ 7039.589829] lcd_drv: PIC bat: ff 83 06 02 04 00
+[ 7051.799781] lcd_drv: PIC bat: ff 82 04 02 04 00
+[ 7064.041225] lcd_drv: PIC bat: ff 83 06 02 04 00
+[ 7076.179896] lcd_drv: PIC bat: ff 83 06 02 04 00
+[ 7088.313514] lcd_drv: PIC bat: ff 82 04 02 04 00
+[ 7100.509945] lcd_drv: PIC bat: ff 82 04 02 04 00
+[ 7112.669948] lcd_drv: PIC bat: ff 82 04 02 04 00
+[ 7124.790629] lcd_drv: PIC bat: ff 81 02 02 04 00
+[ 7136.930298] lcd_drv: PIC bat: ff 83 06 02 04 00
+[ 7149.020350] lcd_drv: PIC bat: ff 81 02 02 04 00
+[ 7161.160091] lcd_drv: PIC bat: ff 82 04 02 04 00
+[ 7173.300176] lcd_drv: PIC bat: ff 82 04 02 04 00
+[ 7185.500136] lcd_drv: PIC bat: ff 81 02 02 04 00
+[ 7197.620146] lcd_drv: PIC bat: ff 81 02 02 04 00
+[ 7209.720578] lcd_drv: PIC bat: ff 82 04 02 04 00
+[ 7221.850561] lcd_drv: PIC bat: ff 82 04 02 04 00
+[ 7234.060203] lcd_drv: PIC bat: ff 81 02 02 04 00
+[ 7246.240428] lcd_drv: PIC bat: ff 80 00 02 04 00
+[ 7258.510466] lcd_drv: PIC bat: ff 80 00 02 04 00
+[ 7270.700346] lcd_drv: PIC bat: ff 80 00 02 04 00
+[ 7282.850442] lcd_drv: PIC bat: ff 81 02 02 04 00
+[ 7295.020674] lcd_drv: PIC bat: ff 80 00 02 04 00
+[ 7307.241680] lcd_drv: PIC bat: ff 7e fc 02 04 00
+[ 7319.700812] lcd_drv: PIC bat: ff 7c f8 02 04 00
+[ 7331.990606] lcd_drv: PIC bat: ff 7b f6 02 04 00
+[ 7344.351648] lcd_drv: PIC bat: ff 7d fa 02 04 00
+[ 7356.721652] lcd_drv: PIC bat: ff 7c f8 02 04 00
+[ 7369.221144] lcd_drv: PIC bat: ff 7d fa 02 04 00
+[ 7381.961347] lcd_drv: PIC bat: ff 7c f8 02 04 00
+[ 7394.441046] lcd_drv: PIC bat: ff 7d fa 02 04 00
+[ 7407.071349] lcd_drv: PIC bat: ff 7c f8 02 04 00
+[ 7419.366926] lcd_drv: PIC bat: ff 7d fa f8 0f ff
+[ 7431.701163] lcd_drv: PIC bat: ff 7c f8 02 04 00
+[ 7443.911472] lcd_drv: PIC bat: ff 7c f8 02 04 00
+[ 7456.221310] lcd_drv: PIC bat: ff 7c f8 02 04 00
+[ 7468.571660] lcd_drv: PIC bat: ff 79 f2 02 04 00
+[ 7480.961408] lcd_drv: PIC bat: ff 7d fa 02 04 00
+[ 7493.551744] lcd_drv: PIC bat: ff 7c f8 02 04 00
+[ 7505.941550] lcd_drv: PIC bat: ff 7c f8 02 04 00
+[ 7518.222874] lcd_drv: PIC bat: ff 79 f2 02 04 00
+[ 7530.392655] lcd_drv: PIC bat: ff 7a f4 02 04 00
+[ 7542.803820] lcd_drv: PIC bat: ff 7b f6 02 04 00
+[ 7555.221840] lcd_drv: PIC bat: ff 7b f6 02 04 00
+[ 7567.481755] lcd_drv: PIC bat: ff 7a f4 02 04 00
+[ 7579.712013] lcd_drv: PIC bat: ff 7a f4 02 04 00
+[ 7592.081747] lcd_drv: PIC bat: ff 7a f4 02 04 00
+[ 7604.512363] lcd_drv: PIC bat: ff 7a f4 02 04 00
+[ 7616.701875] lcd_drv: PIC bat: ff 7a f4 02 04 00
+[ 7628.902085] lcd_drv: PIC bat: ff 79 f2 02 04 00
+[ 7641.082623] lcd_drv: PIC bat: ff 79 f2 02 04 00
+[ 7653.272207] lcd_drv: PIC bat: ff 79 f2 02 04 00
+[ 7665.562556] lcd_drv: PIC bat: ff 78 f0 02 04 00
+[ 7677.816510] lcd_drv: PIC bat: ff 77 ee 02 04 00
+[ 7690.122600] lcd_drv: PIC bat: ff 78 f0 02 04 00
+[ 7702.343253] lcd_drv: PIC bat: ff 79 f2 02 04 00
+[ 7714.674948] lcd_drv: PIC bat: ff 78 f0 02 04 00
+[ 7726.983206] lcd_drv: PIC bat: ff 78 f0 02 04 00
+[ 7739.163145] lcd_drv: PIC bat: ff 78 f0 02 04 00
+[ 7751.412675] lcd_drv: PIC bat: ff 78 f0 02 04 00
+[ 7763.732352] lcd_drv: PIC bat: ff 75 ea 02 04 00
+[ 7775.982425] lcd_drv: PIC bat: ff 78 f0 02 04 00
+[ 7788.252906] lcd_drv: PIC bat: ff 77 ee 02 04 00
+[ 7800.473792] lcd_drv: PIC bat: ff 77 ee 02 04 00
+[ 7812.793583] lcd_drv: PIC bat: ff 76 ec 02 04 00
+[ 7825.093741] lcd_drv: PIC bat: ff 77 ee 02 04 00
+[ 7837.332411] lcd_drv: PIC bat: ff 77 ee 02 04 00
+[ 7849.552568] lcd_drv: PIC bat: ff 77 ee 02 04 00
+[ 7861.792603] lcd_drv: PIC bat: ff 76 ec 02 04 00
+[ 7874.083711] lcd_drv: PIC bat: ff 76 ec 02 04 00
+[ 7886.312623] lcd_drv: PIC bat: ff 75 ea 02 04 00
+[ 7898.552468] lcd_drv: PIC bat: ff 75 ea 02 04 00
+[ 7910.734149] lcd_drv: PIC bat: ff 74 e8 02 04 00
+[ 7922.983437] lcd_drv: PIC bat: ff 75 ea 02 04 00
+[ 7935.162809] lcd_drv: PIC bat: ff 74 e8 02 04 00
+[ 7947.542832] lcd_drv: PIC bat: ff 74 e8 02 04 00
+[ 7959.773161] lcd_drv: PIC bat: ff 74 e8 02 04 00
+[ 7972.044483] lcd_drv: PIC bat: ff 73 e6 cc 00 00
+[ 7984.312635] lcd_drv: PIC bat: ff 74 e8 02 04 00
+[ 7996.502578] lcd_drv: PIC bat: ff 74 e8 02 04 00
+[ 8008.698547] lcd_drv: PIC bat: ff 74 e8 02 04 00
+[ 8020.954782] lcd_drv: PIC bat: ff 74 e8 02 04 00
+[ 8033.122599] lcd_drv: PIC bat: ff 73 e6 02 04 00
+[ 8045.382572] lcd_drv: PIC bat: ff 73 e6 02 04 00
+[ 8057.722680] lcd_drv: PIC bat: ff 72 e4 02 04 00
+[ 8069.882628] lcd_drv: PIC bat: ff 73 e6 02 04 00
+[ 8082.083229] lcd_drv: PIC bat: ff 72 e4 02 04 00
+[ 8094.228312] lcd_drv: PIC bat: ff 73 e6 02 04 00
+[ 8106.502838] lcd_drv: PIC bat: ff 72 e4 02 04 00
+[ 8118.694091] lcd_drv: PIC bat: ff 72 e4 02 04 00
+[ 8130.914513] lcd_drv: PIC bat: ff 72 e4 02 04 00
+[ 8143.212735] lcd_drv: PIC bat: ff 72 e4 02 04 00
+[ 8155.384966] lcd_drv: PIC bat: ff 72 e4 02 04 00
+[ 8167.683112] lcd_drv: PIC bat: ff 71 e2 02 04 00
+[ 8179.855398] lcd_drv: PIC bat: ff 70 e0 02 04 00
+[ 8192.143019] lcd_drv: PIC bat: ff 71 e2 02 04 00
+[ 8204.323186] lcd_drv: PIC bat: ff 71 e2 02 04 00
+[ 8216.572917] lcd_drv: PIC bat: ff 71 e2 02 04 00
+[ 8228.813205] lcd_drv: PIC bat: ff 70 e0 02 04 00
+[ 8240.972826] lcd_drv: PIC bat: ff 71 e2 02 04 00
+[ 8253.323055] lcd_drv: PIC bat: ff 70 e0 02 04 00
+[ 8265.516320] lcd_drv: PIC bat: ff 70 e0 02 04 00
+[ 8277.693505] lcd_drv: PIC bat: ff 70 e0 02 04 00
+[ 8289.912877] lcd_drv: PIC bat: ff 70 e0 02 04 00
+[ 8302.092876] lcd_drv: PIC bat: ff 70 e0 02 04 00
+[ 8314.383815] lcd_drv: PIC bat: ff 6f de 02 04 08
+[ 8326.673362] lcd_drv: PIC bat: ff 6f de 02 04 00
+[ 8338.953170] lcd_drv: PIC bat: ff 6f de 02 04 00
+[ 8351.123343] lcd_drv: PIC bat: ff 6f de 02 04 00
+[ 8363.383142] lcd_drv: PIC bat: ff 6e dc 02 04 00
+[ 8375.563515] lcd_drv: PIC bat: ff 6e dc 02 04 00
+[ 8387.743636] lcd_drv: PIC bat: ff 6f de 02 04 00
+[ 8399.872932] lcd_drv: PIC bat: ff 6d da 02 04 00
+[ 8412.193170] lcd_drv: PIC bat: ff 6e dc 02 04 00
+[ 8424.362603] lcd_drv: PIC bat: ff 6c d8 02 04 00
+[ 8436.563312] lcd_drv: PIC bat: ff 6e dc 02 04 00
+[ 8448.833347] lcd_drv: PIC bat: ff 6e dc 02 04 00
+[ 8461.093054] lcd_drv: PIC bat: ff 6d da 02 04 00
+[ 8473.373179] lcd_drv: PIC bat: ff 6e dc 02 04 00
+[ 8485.564129] lcd_drv: PIC bat: ff 6e dc 02 04 00
+[ 8497.783115] lcd_drv: PIC bat: ff 6d da 02 04 00
+[ 8510.034503] lcd_drv: PIC bat: ff 6d da 02 04 00
+[ 8522.263192] lcd_drv: PIC bat: ff 6d da 02 04 00
+[ 8534.533491] lcd_drv: PIC bat: ff 6c d8 02 04 00
+[ 8546.836892] lcd_drv: PIC bat: ff 6d da 02 04 00
+[ 8559.153293] lcd_drv: PIC bat: ff 6d da 02 04 00
+[ 8571.460331] lcd_drv: PIC bat: ff 6c d8 02 04 00
+[ 8583.743099] lcd_drv: PIC bat: ff 6c d8 02 04 00
+[ 8595.995690] lcd_drv: PIC bat: ff 6c d8 02 04 00
+[ 8608.223366] lcd_drv: PIC bat: ff 6c d8 02 04 00
+[ 8620.453913] lcd_drv: PIC bat: ff 6b d6 02 04 00
+[ 8632.703210] lcd_drv: PIC bat: ff 6c d8 02 04 00
+[ 8644.985423] lcd_drv: PIC bat: ff 6b d6 02 04 00
+[ 8657.264210] lcd_drv: PIC bat: ff 6c d8 02 04 00
+[ 8669.483666] lcd_drv: PIC bat: ff 6b d6 02 04 00
+[ 8681.757997] lcd_drv: PIC bat: ff 6b d6 02 04 00
+[ 8694.063404] lcd_drv: PIC bat: ff 6a d4 02 04 00
+[ 8706.337632] lcd_drv: PIC bat: ff 6a d4 02 04 00
+[ 8718.603687] lcd_drv: PIC bat: ff 6a d4 02 04 00
+[ 8730.873724] lcd_drv: PIC bat: ff 6b d6 02 04 00
+[ 8743.223894] lcd_drv: PIC bat: ff 6a d4 02 04 00
+[ 8755.453525] lcd_drv: PIC bat: ff 6a d4 02 04 00
+[ 8767.752311] lcd_drv: PIC bat: ff 6a d4 f8 0f ff
+[ 8780.045035] lcd_drv: PIC bat: ff 6a d4 02 04 00
+[ 8792.534701] lcd_drv: PIC bat: ff 6a d4 02 04 00
+[ 8804.955031] lcd_drv: PIC bat: ff 69 d2 02 04 00
+[ 8817.583726] lcd_drv: PIC bat: ff 6c d8 02 04 00
+[ 8830.153728] lcd_drv: PIC bat: ff 69 d2 02 04 00
+[ 8842.443598] lcd_drv: PIC bat: ff 6b d6 02 04 00
+[ 8854.828084] lcd_drv: PIC bat: ff 69 d2 02 04 00
+[ 8867.293472] lcd_drv: PIC bat: ff 6a d4 02 04 00
+[ 8879.763731] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 8892.153752] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 8904.613455] lcd_drv: PIC bat: ff 69 d2 02 04 00
+[ 8917.063884] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 8929.574460] lcd_drv: PIC bat: ff 66 cc 02 04 00
+[ 8941.967601] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 8954.503572] lcd_drv: PIC bat: ff 69 d2 02 04 00
+[ 8966.823642] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 8979.184526] lcd_drv: PIC bat: ff 66 cc 02 04 00
+[ 8991.685411] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9004.193603] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 9016.643751] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9029.123599] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 9041.464400] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9053.834012] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9066.264777] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 9078.463707] lcd_drv: PIC bat: ff 66 cc 02 04 00
+[ 9090.683749] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 9102.853695] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 9115.005385] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 9127.184920] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 9139.353676] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 9151.584448] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9163.873776] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9176.083854] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9188.313683] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9200.505017] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9212.685601] lcd_drv: PIC bat: ff 68 d0 02 04 00
+[ 9224.903928] lcd_drv: PIC bat: ff 64 c8 02 04 00
+[ 9237.196597] lcd_drv: PIC bat: ff 64 c8 90 00 00
+[ 9249.433892] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9261.774351] lcd_drv: PIC bat: ff 66 cc 02 04 00
+[ 9274.043968] lcd_drv: PIC bat: ff 66 cc 02 04 00
+[ 9286.294314] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9298.523749] lcd_drv: PIC bat: ff 63 c6 02 04 00
+[ 9310.744721] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9322.963802] lcd_drv: PIC bat: ff 66 cc 02 04 00
+[ 9335.164008] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9347.433998] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9359.723896] lcd_drv: PIC bat: ff 66 cc 02 04 00
+[ 9371.874092] lcd_drv: PIC bat: ff 66 cc 02 04 00
+[ 9384.064633] lcd_drv: PIC bat: ff 64 c8 02 04 00
+[ 9396.323741] lcd_drv: PIC bat: ff 66 cc 02 04 00
+[ 9408.473759] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9420.653559] lcd_drv: PIC bat: ff 66 cc 02 04 00
+[ 9432.955568] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9445.183323] lcd_drv: PIC bat: ff 66 cc 02 04 00
+[ 9457.403496] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9469.543263] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9481.683008] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9493.912962] lcd_drv: PIC bat: ff 67 ce 02 04 00
+[ 9506.023338] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9518.242981] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9530.412743] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9542.572558] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9554.762623] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9567.002254] lcd_drv: PIC bat: ff 65 ca 02 04 00
+[ 9579.272355] lcd_drv: PIC bat: ff 64 c8 02 04 00
+[ 9591.462646] lcd_drv: PIC bat: ff 64 c8 02 04 00
+[ 9603.762465] lcd_drv: PIC bat: ff 63 c6 02 04 00
+[ 9616.204634] lcd_drv: PIC bat: ff 5f be 02 04 00
+[ 9628.641800] lcd_drv: PIC bat: ff 63 c6 02 04 00
+[ 9641.038106] lcd_drv: PIC bat: ff 62 c4 02 04 00
+[ 9653.511720] lcd_drv: PIC bat: ff 62 c4 02 04 00
+[ 9666.011667] lcd_drv: PIC bat: ff 62 c4 02 04 00
+[ 9678.593097] lcd_drv: PIC bat: ff 61 c2 02 04 00
+[ 9690.971483] lcd_drv: PIC bat: ff 62 c4 02 04 00
+[ 9703.304578] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[ 9715.771455] lcd_drv: PIC bat: ff 61 c2 02 04 00
+[ 9728.151191] lcd_drv: PIC bat: ff 61 c2 02 04 00
+[ 9740.392134] lcd_drv: PIC bat: ff 61 c2 02 04 00
+[ 9752.720774] lcd_drv: PIC bat: ff 62 c4 02 04 00
+[ 9765.241071] lcd_drv: PIC bat: ff 60 c0 02 04 00
+[ 9777.591635] lcd_drv: PIC bat: ff 60 c0 02 04 00
+[ 9790.010675] lcd_drv: PIC bat: ff 60 c0 02 04 00
+[ 9802.410517] lcd_drv: PIC bat: ff 61 c2 02 04 00
+[ 9814.712496] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[ 9827.300291] lcd_drv: PIC bat: ff 60 c0 02 04 00
+[ 9839.650335] lcd_drv: PIC bat: ff 61 c2 02 04 00
+[ 9852.001052] lcd_drv: PIC bat: ff 5f be 02 04 00
+[ 9864.304353] lcd_drv: PIC bat: ff 5e bc 02 04 00
+[ 9876.780974] lcd_drv: PIC bat: ff 5f be 02 04 00
+[ 9889.000267] lcd_drv: PIC bat: ff 5e bc 02 04 00
+[ 9901.240432] lcd_drv: PIC bat: ff 60 c0 02 04 00
+[ 9913.480234] lcd_drv: PIC bat: ff 61 c2 02 04 00
+[ 9925.612394] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[ 9937.912794] lcd_drv: PIC bat: ff 5f be 00 00 00
+[ 9950.159754] lcd_drv: PIC bat: ff 5f be 02 04 00
+[ 9962.372724] lcd_drv: PIC bat: ff 60 c0 02 04 00
+[ 9974.709896] lcd_drv: PIC bat: ff 60 c0 02 04 00
+[ 9987.031453] lcd_drv: PIC bat: ff 5c b8 02 04 00
+[ 9999.320100] lcd_drv: PIC bat: ff 5f be 02 04 00
+[10011.799274] lcd_drv: PIC bat: ff 5c b8 02 04 08
+[10024.231121] lcd_drv: PIC bat: ff 5f be 02 04 00
+[10036.529364] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[10048.763819] lcd_drv: PIC bat: ff 5e bc 02 04 00
+[10061.002516] lcd_drv: PIC bat: ff 5f be 02 04 00
+[10073.299493] lcd_drv: PIC bat: ff 5f be 02 04 00
+[10085.549392] lcd_drv: PIC bat: ff 5f be 02 04 00
+[10097.738804] lcd_drv: PIC bat: ff 5f be 02 04 00
+[10109.938580] lcd_drv: PIC bat: ff 5e bc 02 04 00
+[10122.128843] lcd_drv: PIC bat: ff 5f be 02 04 00
+[10134.469352] lcd_drv: PIC bat: ff 5e bc 02 04 00
+[10146.808743] lcd_drv: PIC bat: ff 5f be 02 04 00
+[10159.028420] lcd_drv: PIC bat: ff 5e bc 02 04 00
+[10171.248614] lcd_drv: PIC bat: ff 5e bc 02 04 00
+[10183.468600] lcd_drv: PIC bat: ff 59 b2 02 04 00
+[10195.772301] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[10208.108120] lcd_drv: PIC bat: ff 5e bc 02 04 00
+[10220.358034] lcd_drv: PIC bat: ff 5e bc 02 04 00
+[10232.568220] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10244.757850] lcd_drv: PIC bat: ff 5e bc 02 04 00
+[10257.087997] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10269.397921] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10281.637857] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10293.968144] lcd_drv: PIC bat: ff 5e bc 02 04 00
+[10306.187656] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10318.601531] lcd_drv: PIC bat: ff 5c b8 02 04 00
+[10330.877541] lcd_drv: PIC bat: ff 5c b8 02 04 00
+[10343.127357] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10355.378235] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10367.527478] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10379.727370] lcd_drv: PIC bat: ff 5c b8 02 04 00
+[10391.982643] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10404.137296] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10416.347772] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[10428.574019] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10440.897748] lcd_drv: PIC bat: ff 5c b8 02 04 00
+[10453.179773] lcd_drv: PIC bat: ff 5c b8 02 04 00
+[10465.377359] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10477.687269] lcd_drv: PIC bat: ff 5c b8 02 04 00
+[10490.107733] lcd_drv: PIC bat: ff 5d ba 02 04 00
+[10502.407284] lcd_drv: PIC bat: ff 5c b8 02 04 00
+[10514.678305] lcd_drv: PIC bat: ff 5c b8 02 04 00
+[10526.917033] lcd_drv: PIC bat: ff 5a b4 02 04 00
+[10539.177327] lcd_drv: PIC bat: ff 5c b8 02 04 00
+[10551.437465] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[10563.717155] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[10576.022777] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[10588.357199] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[10600.926892] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[10613.539719] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[10626.216803] lcd_drv: PIC bat: ff 5a b4 02 04 00
+[10638.767058] lcd_drv: PIC bat: ff 5a b4 02 04 00
+[10651.000064] lcd_drv: PIC bat: ff 59 b2 00 01 ff
+[10663.457310] lcd_drv: PIC bat: ff 5a b4 02 04 00
+[10675.787358] lcd_drv: PIC bat: ff 5a b4 02 04 00
+[10688.378626] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[10700.646989] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[10712.916828] lcd_drv: PIC bat: ff 5a b4 02 04 00
+[10725.457750] lcd_drv: PIC bat: ff 59 b2 02 04 00
+[10737.767130] lcd_drv: PIC bat: ff 5b b6 02 04 00
+[10750.187144] lcd_drv: PIC bat: ff 5a b4 02 04 00
+[10762.747362] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[10775.219187] lcd_drv: PIC bat: ff 59 b2 02 04 00
+[10787.626776] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[10799.846637] lcd_drv: PIC bat: ff 59 b2 02 04 00
+[10812.229545] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[10824.549902] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[10836.888673] lcd_drv: PIC bat: ff 53 a6 02 04 00
+[10849.331920] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[10861.817212] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[10874.176677] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[10886.396460] lcd_drv: PIC bat: ff 59 b2 02 04 00
+[10898.616771] lcd_drv: PIC bat: ff 59 b2 02 04 00
+[10910.756637] lcd_drv: PIC bat: ff 59 b2 02 04 00
+[10922.937578] lcd_drv: PIC bat: ff 59 b2 02 04 00
+[10935.177336] lcd_drv: PIC bat: ff 59 b2 02 04 00
+[10947.356748] lcd_drv: PIC bat: ff ac ff ff ff ff
+[10959.476737] lcd_drv: PIC bat: ff 00 00 00 00 00
+[10971.686756] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[10983.837158] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[10996.066691] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[11008.287181] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[11020.496914] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[11032.666847] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11044.848554] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[11057.066758] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[11069.276758] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[11081.487035] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[11093.816810] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[11106.087082] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11118.358994] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11130.666799] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[11142.887083] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11155.256872] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[11167.466841] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11179.718830] lcd_drv: PIC bat: ff 55 aa 02 04 00
+[11191.947713] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11204.217180] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11216.476944] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11228.677378] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11240.938679] lcd_drv: PIC bat: ff 53 a6 02 04 00
+[11253.197535] lcd_drv: PIC bat: ff 56 ac 02 04 00
+[11265.477515] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11277.738835] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11289.887104] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11302.177316] lcd_drv: PIC bat: ff 56 ac 02 04 00
+[11314.397238] lcd_drv: PIC bat: ff 58 b0 02 04 00
+[11326.677061] lcd_drv: PIC bat: ff 56 ac 02 04 00
+[11338.977106] lcd_drv: PIC bat: ff 57 ae 02 04 00
+[11351.207225] lcd_drv: PIC bat: ff 56 ac 02 04 00
+[11363.418658] lcd_drv: PIC bat: ff 56 ac 02 04 00
+[11375.647123] lcd_drv: PIC bat: ff 56 ac 02 04 00
+[11387.967231] lcd_drv: PIC bat: ff 56 ac 02 04 00
+[11400.267349] lcd_drv: PIC bat: ff 56 ac 02 04 00
+[11412.518125] lcd_drv: PIC bat: ff 56 ac 02 04 00
+[11424.657328] lcd_drv: PIC bat: ff 55 aa 02 04 00
+[11436.827281] lcd_drv: PIC bat: ff 55 aa 02 04 00
+[11449.127088] lcd_drv: PIC bat: ff 56 ac 02 04 00
+[11461.357416] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11473.618295] lcd_drv: PIC bat: ff 55 aa 02 04 00
+[11485.787074] lcd_drv: PIC bat: ff 55 aa 02 04 00
+[11497.947265] lcd_drv: PIC bat: ff 55 aa 02 04 00
+[11510.122307] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11522.367812] lcd_drv: PIC bat: ff 55 aa 02 04 00
+[11534.607872] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11546.727199] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11558.907084] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11571.067227] lcd_drv: PIC bat: ff 55 aa 02 04 00
+[11583.287255] lcd_drv: PIC bat: ff 55 aa 02 04 00
+[11595.541972] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11607.747161] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11620.027905] lcd_drv: PIC bat: ff 53 a6 02 04 00
+[11632.237112] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11644.517050] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11656.737281] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11668.937780] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11681.117651] lcd_drv: PIC bat: ff 53 a6 02 04 00
+[11693.363960] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11705.569207] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11717.827114] lcd_drv: PIC bat: ff 54 a8 02 04 00
+[11730.083564] lcd_drv: PIC bat: ff 53 a6 02 04 00
+[11742.357936] lcd_drv: PIC bat: ff 4f 9e 02 04 00
+[11754.777164] lcd_drv: PIC bat: ff 52 a4 02 04 00
+[11767.077512] lcd_drv: PIC bat: ff 53 a6 02 04 00
+[11779.217093] lcd_drv: PIC bat: ff 53 a6 02 04 00
+[11791.417340] lcd_drv: PIC bat: ff 53 a6 02 04 00
+[11803.537068] lcd_drv: PIC bat: ff 53 a6 02 04 00
+[11815.757431] lcd_drv: PIC bat: ff 53 a6 02 04 00
+[11828.127430] lcd_drv: PIC bat: ff 53 a6 02 04 00
+[11840.448264] lcd_drv: PIC bat: ff 52 a4 02 04 00
+[11852.786941] lcd_drv: PIC bat: ff 52 a4 02 04 00
+[11865.037299] lcd_drv: PIC bat: ff 52 a4 02 04 00
+[11877.269025] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[11889.578041] lcd_drv: PIC bat: ff 52 a4 02 04 00
+[11901.757135] lcd_drv: PIC bat: ff 52 a4 02 04 00
+[11914.029178] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[11926.277233] lcd_drv: PIC bat: ff 52 a4 02 04 00
+[11938.556958] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[11950.777888] lcd_drv: PIC bat: ff 50 a0 02 04 00
+[11962.956960] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[11975.177012] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[11987.357118] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[11999.537150] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[12011.808430] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[12023.987351] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[12036.227155] lcd_drv: PIC bat: ff 50 a0 02 04 00
+[12048.406976] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[12060.736996] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[12072.947754] lcd_drv: PIC bat: ff 4f 9e 02 04 00
+[12085.299161] lcd_drv: PIC bat: ff 4e 9c 02 04 00
+[12097.498910] lcd_drv: PIC bat: ff 4f 9e 02 04 00
+[12109.738214] lcd_drv: PIC bat: ff 4d 9a 02 04 00
+[12121.987520] lcd_drv: PIC bat: ff 4e 9c 02 04 00
+[12134.186978] lcd_drv: PIC bat: ff 4f 9e 02 04 00
+[12146.477011] lcd_drv: PIC bat: ff 4f 9e 02 04 00
+[12158.747004] lcd_drv: PIC bat: ff 4f 9e 02 04 00
+[12171.038127] lcd_drv: PIC bat: ff 4f 9e 02 04 00
+[12183.207090] lcd_drv: PIC bat: ff 4f 9e 02 04 00
+[12195.438260] lcd_drv: PIC bat: ff 4e 9c 02 04 00
+[12207.696948] lcd_drv: PIC bat: ff 4e 9c 02 04 00
+[12219.917102] lcd_drv: PIC bat: ff 4e 9c 02 04 00
+[12232.227453] lcd_drv: PIC bat: ff 4f 9e 02 04 00
+[12244.627340] lcd_drv: PIC bat: ff 4f 9e 02 04 00
+[12256.947737] lcd_drv: PIC bat: ff 4e 9c 02 04 00
+[12269.127079] lcd_drv: PIC bat: ff 4e 9c 02 04 00
+[12281.397482] lcd_drv: PIC bat: ff 4e 9c 02 04 00
+[12293.687032] lcd_drv: PIC bat: ff 4d 9a 02 04 00
+[12305.937120] lcd_drv: PIC bat: ff 51 a2 02 04 00
+[12318.087272] lcd_drv: PIC bat: ff 4d 9a 02 04 00
+[12330.397282] lcd_drv: PIC bat: ff 4d 9a 02 04 00
+[12342.638054] lcd_drv: PIC bat: ff 4d 9a 02 04 00
+[12354.841052] lcd_drv: PIC bat: ff 4a 94 02 04 00
+[12367.237552] lcd_drv: PIC bat: ff 4d 9a 02 04 00
+[12379.476905] lcd_drv: PIC bat: ff 4d 9a 02 04 00
+[12391.777629] lcd_drv: PIC bat: ff 4d 9a 02 04 00
+[12404.027028] lcd_drv: PIC bat: ff 4d 9a 02 04 00
+[12416.229244] lcd_drv: PIC bat: ff 4c 98 02 04 00
+[12428.437042] lcd_drv: PIC bat: ff 4b 96 02 04 00
+[12440.617944] lcd_drv: PIC bat: ff 4d 9a 02 04 00
+[12452.816935] lcd_drv: PIC bat: ff 4c 98 02 04 00
+[12465.041076] lcd_drv: PIC bat: ff 4c 98 02 04 00
+[12477.226941] lcd_drv: PIC bat: ff 48 90 02 04 00
+[12489.486795] lcd_drv: PIC bat: ff 4a 94 02 04 00
+[12501.697085] lcd_drv: PIC bat: ff 48 90 02 04 00
+[12513.998089] lcd_drv: PIC bat: ff 4c 98 02 04 00
+[12526.226394] lcd_drv: PIC bat: ff 4c 98 02 04 00
+[12538.396396] lcd_drv: PIC bat: ff 4c 98 02 04 00
+[12550.636731] lcd_drv: PIC bat: ff 4a 94 02 04 00
+[12562.825926] lcd_drv: PIC bat: ff 4b 96 02 04 00
+[12574.996306] lcd_drv: PIC bat: ff 4b 96 02 04 00
+[12587.135989] lcd_drv: PIC bat: ff 4b 96 02 04 00
+[12599.389073] lcd_drv: PIC bat: ff 4b 96 02 04 00
+[12611.727411] lcd_drv: PIC bat: ff 4b 96 02 04 00
+[12623.955333] lcd_drv: PIC bat: ff 4c 98 02 04 00
+[12636.095458] lcd_drv: PIC bat: ff 47 8e 02 04 00
+[12648.295872] lcd_drv: PIC bat: ff 4a 94 02 04 00
+[12660.585505] lcd_drv: PIC bat: ff 4a 94 02 04 00
+[12672.765443] lcd_drv: PIC bat: ff 4a 94 02 04 00
+[12684.965308] lcd_drv: PIC bat: ff 49 92 02 04 00
+[12697.175515] lcd_drv: PIC bat: ff 4a 94 02 04 00
+[12709.409108] lcd_drv: PIC bat: ff 48 90 02 04 00
+[12721.664572] lcd_drv: PIC bat: ff 49 92 02 04 00
+[12733.845530] lcd_drv: PIC bat: ff 49 92 02 04 00
+[12746.044607] lcd_drv: PIC bat: ff 49 92 02 04 00
+[12758.204564] lcd_drv: PIC bat: ff 49 92 02 04 00
+[12770.404509] lcd_drv: PIC bat: ff 49 92 02 04 00
+[12782.514349] lcd_drv: PIC bat: ff 49 92 02 04 00
+[12794.764313] lcd_drv: PIC bat: ff 47 8e 02 04 00
+[12806.976714] lcd_drv: PIC bat: ff 44 88 02 04 00
+[12819.185263] lcd_drv: PIC bat: ff 48 90 02 04 00
+[12831.432355] lcd_drv: PIC bat: ff 47 8e 02 04 00
+[12843.659547] lcd_drv: PIC bat: ff 46 8c 02 04 00
+[12855.973757] lcd_drv: PIC bat: ff 47 8e 02 04 00
+[12868.195138] lcd_drv: PIC bat: ff 46 8c 02 04 00
+[12880.534116] lcd_drv: PIC bat: ff 46 8c 02 04 00
+[12892.804138] lcd_drv: PIC bat: ff 46 8c 02 04 00
+[12905.113383] lcd_drv: PIC bat: ff 46 8c 02 04 00
+[12917.384416] lcd_drv: PIC bat: ff 47 8e 02 04 00
+[12929.573951] lcd_drv: PIC bat: ff 47 8e 02 04 00
+[12941.873242] lcd_drv: PIC bat: ff 46 8c 02 04 00
+[12954.123038] lcd_drv: PIC bat: ff 46 8c 02 04 00
+[12966.363086] lcd_drv: PIC bat: ff 47 8e 02 04 00
+[12978.663376] lcd_drv: PIC bat: ff 46 8c 02 04 00
+[12990.924655] lcd_drv: PIC bat: ff 46 8c 02 04 00
+[13003.153084] lcd_drv: PIC bat: ff 42 84 02 04 00
+[13015.350135] lcd_drv: PIC bat: ff 44 88 02 04 00
+[13027.633081] lcd_drv: PIC bat: ff 44 88 02 04 00
+[13039.896629] lcd_drv: PIC bat: ff 45 8a 02 04 00
+[13052.153156] lcd_drv: PIC bat: ff 44 88 02 04 00
+[13064.343244] lcd_drv: PIC bat: ff 44 88 02 04 00
+[13076.643173] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13089.058285] lcd_drv: PIC bat: ff 43 86 02 04 00
+[13101.393009] lcd_drv: PIC bat: ff 44 88 02 04 00
+[13113.603155] lcd_drv: PIC bat: ff 44 88 02 04 00
+[13125.703070] lcd_drv: PIC bat: ff 40 80 02 04 00
+[13137.983003] lcd_drv: PIC bat: ff 43 86 02 04 00
+[13150.323122] lcd_drv: PIC bat: ff 43 86 02 04 00
+[13162.723468] lcd_drv: PIC bat: ff 43 86 02 04 00
+[13174.953717] lcd_drv: PIC bat: ff 41 82 02 04 00
+[13187.313047] lcd_drv: PIC bat: ff 42 84 02 04 00
+[13199.498132] lcd_drv: PIC bat: ff 41 82 02 04 00
+[13211.823108] lcd_drv: PIC bat: ff 41 82 02 04 00
+[13224.032881] lcd_drv: PIC bat: ff 42 84 02 04 00
+[13236.172986] lcd_drv: PIC bat: ff 42 84 02 04 00
+[13248.422934] lcd_drv: PIC bat: ff 42 84 02 04 00
+[13260.704281] lcd_drv: PIC bat: ff 41 82 02 04 00
+[13272.823052] lcd_drv: PIC bat: ff 40 80 02 04 00
+[13285.043611] lcd_drv: PIC bat: ff 40 80 02 04 00
+[13297.254102] lcd_drv: PIC bat: ff 40 80 02 04 00
+[13309.523007] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13321.693034] lcd_drv: PIC bat: ff 40 80 02 04 00
+[13333.982912] lcd_drv: PIC bat: ff 40 80 02 04 00
+[13346.252989] lcd_drv: PIC bat: ff 40 80 02 04 00
+[13358.445785] lcd_drv: PIC bat: ff 3f 7e 02 04 00
+[13370.602797] lcd_drv: PIC bat: ff 40 80 02 04 00
+[13382.743858] lcd_drv: PIC bat: ff 3e 7c 02 04 00
+[13394.923265] lcd_drv: PIC bat: ff 3e 7c 02 04 00
+[13407.054056] lcd_drv: PIC bat: ff 3e 7c 02 04 00
+[13419.213341] lcd_drv: PIC bat: ff 3f 7e 02 04 00
+[13431.314236] lcd_drv: PIC bat: ff 3f 7e 02 04 00
+[13443.623171] lcd_drv: PIC bat: ff 3e 7c 02 04 00
+[13455.803601] lcd_drv: PIC bat: ff 3e 7c 02 04 00
+[13467.963968] lcd_drv: PIC bat: ff 3e 7c 02 04 00
+[13480.093247] lcd_drv: PIC bat: ff 3e 7c 02 04 00
+[13492.262778] lcd_drv: PIC bat: ff 3e 7c 02 04 00
+[13504.432908] lcd_drv: PIC bat: ff 3e 7c 02 04 00
+[13516.702865] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13528.963283] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13541.153255] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13553.313723] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13565.452729] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13577.634045] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13589.862736] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13602.106269] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13614.333799] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13626.617212] lcd_drv: PIC bat: ff 3b 76 02 04 00
+[13638.822525] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13650.952480] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13663.122805] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13675.322539] lcd_drv: PIC bat: ff 3e 7c 02 04 00
+[13687.562596] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13699.732526] lcd_drv: PIC bat: ff 3e 7c 02 04 00
+[13711.962857] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13724.205068] lcd_drv: PIC bat: ff 3a 74 e8 00 00
+[13736.373874] lcd_drv: PIC bat: ff 39 72 02 04 00
+[13748.482478] lcd_drv: PIC bat: ff 3b 76 02 04 00
+[13760.602310] lcd_drv: PIC bat: ff 3b 76 02 04 00
+[13772.832252] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13784.992397] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13797.152333] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13809.402319] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13821.602205] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13833.782214] lcd_drv: PIC bat: ff 3b 76 02 04 00
+[13846.042194] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13858.182188] lcd_drv: PIC bat: ff 3b 76 02 04 00
+[13870.392096] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13882.502093] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13894.612096] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13906.782088] lcd_drv: PIC bat: ff 3d 7a 02 04 00
+[13919.032038] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13931.132078] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13943.272026] lcd_drv: PIC bat: ff 3b 76 02 04 00
+[13955.463120] lcd_drv: PIC bat: ff 3b 76 02 04 00
+[13967.672033] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13979.842015] lcd_drv: PIC bat: ff 3c 78 02 04 00
+[13992.022005] lcd_drv: PIC bat: ff 3b 76 02 04 00
+[14004.241963] lcd_drv: PIC bat: ff 3a 74 02 04 00
+[14016.403056] lcd_drv: PIC bat: ff 39 72 02 04 00
+[14028.621958] lcd_drv: PIC bat: ff 3a 74 02 04 00
+[14040.812147] lcd_drv: PIC bat: ff 3a 74 02 04 00
+[14052.991874] lcd_drv: PIC bat: ff 3b 76 02 04 00
+[14065.131834] lcd_drv: PIC bat: ff 3a 74 02 04 00
+[14077.481864] lcd_drv: PIC bat: ff 3b 76 02 04 00
+[14089.591962] lcd_drv: PIC bat: ff 3a 74 02 04 00
+[14101.801801] lcd_drv: PIC bat: ff 3b 76 02 04 00
+[14113.991900] lcd_drv: PIC bat: ff 39 72 02 04 00
+[14126.191821] lcd_drv: PIC bat: ff 3a 74 02 04 00
+[14138.421760] lcd_drv: PIC bat: ff 3a 74 02 04 00
+[14150.611692] lcd_drv: PIC bat: ff 3a 74 02 04 00
+[14162.761840] lcd_drv: PIC bat: ff 39 72 02 04 00
+[14174.901829] lcd_drv: PIC bat: ff 38 70 02 04 00
+[14187.051757] lcd_drv: PIC bat: ff 3a 74 02 04 00
+[14199.171739] lcd_drv: PIC bat: ff 39 72 02 04 00
+[14211.331600] lcd_drv: PIC bat: ff 38 70 02 04 00
+[14223.491586] lcd_drv: PIC bat: ff 39 72 02 04 00
+[14235.641679] lcd_drv: PIC bat: ff 39 72 02 04 00
+[14247.771586] lcd_drv: PIC bat: ff 39 72 02 04 00
+[14259.911959] lcd_drv: PIC bat: ff 38 70 02 04 00
+[14272.061781] lcd_drv: PIC bat: ff 37 6e 02 04 00
+[14284.171608] lcd_drv: PIC bat: ff 39 72 02 04 00
+[14296.381495] lcd_drv: PIC bat: ff 34 68 02 04 00
+[14308.621513] lcd_drv: PIC bat: ff 35 6a 02 04 00
+[14320.881574] lcd_drv: PIC bat: ff 38 70 02 04 00
+[14333.061600] lcd_drv: PIC bat: ff 36 6c 02 04 00
+[14345.271506] lcd_drv: PIC bat: ff 37 6e 02 04 00
+[14357.401494] lcd_drv: PIC bat: ff 38 70 02 04 00
+[14369.661446] lcd_drv: PIC bat: ff 36 6c 02 04 00
+[14381.871501] lcd_drv: PIC bat: ff 36 6c 02 04 00
+[14394.061680] lcd_drv: PIC bat: ff 36 6c 02 04 00
+[14406.201506] lcd_drv: PIC bat: ff 37 6e 02 04 00
+[14418.351591] lcd_drv: PIC bat: ff 36 6c 02 04 00
+[14430.491739] lcd_drv: PIC bat: ff 37 6e 02 04 00
+[14442.631630] lcd_drv: PIC bat: ff 36 6c 02 04 00
+[14454.861510] lcd_drv: PIC bat: ff 35 6a 02 04 00
+[14467.041399] lcd_drv: PIC bat: ff 36 6c 02 04 00
+[14479.181294] lcd_drv: PIC bat: ff 35 6a 02 04 00
+[14491.281321] lcd_drv: PIC bat: ff 36 6c 02 04 00
+[14503.431432] lcd_drv: PIC bat: ff 35 6a 02 04 00
+[14515.541330] lcd_drv: PIC bat: ff 34 68 02 04 00
+[14527.741342] lcd_drv: PIC bat: ff 34 68 02 04 00
+[14539.892398] lcd_drv: PIC bat: ff 35 6a 02 04 00
+[14552.151301] lcd_drv: PIC bat: ff 33 66 02 04 00
+[14564.442244] lcd_drv: PIC bat: ff 32 64 02 04 00
+[14576.681311] lcd_drv: PIC bat: ff 33 66 02 04 00
+[14588.891207] lcd_drv: PIC bat: ff 34 68 02 04 00
+[14601.081248] lcd_drv: PIC bat: ff 34 68 02 04 00
+[14613.241199] lcd_drv: PIC bat: ff 33 66 02 04 00
+[14625.411231] lcd_drv: PIC bat: ff 32 64 02 04 00
+[14637.611167] lcd_drv: PIC bat: ff 33 66 02 04 00
+[14649.731258] lcd_drv: PIC bat: ff 33 66 02 04 00
+[14661.861187] lcd_drv: PIC bat: ff 31 62 02 04 00
+[14673.971214] lcd_drv: PIC bat: ff 33 66 02 04 00
+[14686.121218] lcd_drv: PIC bat: ff 32 64 02 04 00
+[14698.271155] lcd_drv: PIC bat: ff 32 64 02 04 00
+[14710.411085] lcd_drv: PIC bat: ff 30 60 02 04 00
+[14722.571111] lcd_drv: PIC bat: ff 30 60 02 04 00
+[14734.701137] lcd_drv: PIC bat: ff 2d 5a 02 04 00
+[14746.881083] lcd_drv: PIC bat: ff 30 60 02 04 00
+[14759.091119] lcd_drv: PIC bat: ff 2f 5e 02 04 00
+[14771.191053] lcd_drv: PIC bat: ff 2e 5c 02 04 00
+[14783.421135] lcd_drv: PIC bat: ff 2e 5c 02 04 00
+[14795.641056] lcd_drv: PIC bat: ff 2e 5c 02 04 00
+[14807.851037] lcd_drv: PIC bat: ff 2d 5a 02 04 00
+[14820.011138] lcd_drv: PIC bat: ff 2d 5a 02 04 00
+[14832.211493] lcd_drv: PIC bat: ff 2d 5a 02 04 00
+[14844.341032] lcd_drv: PIC bat: ff 2c 58 02 04 00
+[14856.502307] lcd_drv: PIC bat: ff 2d 5a 02 04 00
+[14868.641015] lcd_drv: PIC bat: ff 2b 56 02 04 00
+[14880.871019] lcd_drv: PIC bat: ff 2b 56 02 04 00
+[14893.061076] lcd_drv: PIC bat: ff 2b 56 02 04 00
+[14905.250944] lcd_drv: PIC bat: ff 2b 56 02 04 00
+[14917.350917] lcd_drv: PIC bat: ff 29 52 02 04 00
+[14929.510939] lcd_drv: PIC bat: ff 29 52 02 04 00
+[14941.660968] lcd_drv: PIC bat: ff 2a 54 02 04 00
+[14953.920969] lcd_drv: PIC bat: ff 29 52 02 04 00
+[14966.091068] lcd_drv: PIC bat: ff 29 52 02 04 00
+[14978.170975] lcd_drv: PIC bat: ff 28 50 02 04 00
+[14990.251681] lcd_drv: PIC bat: ff 27 4e 02 04 00
+[15002.411033] lcd_drv: PIC bat: ff 27 4e 02 04 00
+[15014.550904] lcd_drv: PIC bat: ff 25 4a 02 04 00
+[15026.670962] lcd_drv: PIC bat: ff 24 48 02 04 00
+[15038.860824] lcd_drv: PIC bat: ff 23 46 02 04 00
+[15051.030900] lcd_drv: PIC bat: ff 23 46 02 04 00
+[15063.190873] lcd_drv: PIC bat: ff 23 46 02 04 00
+[15075.400863] lcd_drv: PIC bat: ff 22 44 02 04 00
+[15087.520899] lcd_drv: PIC bat: ff 1f 3e 02 04 00
+[15099.651224] lcd_drv: PIC bat: ff 20 40 02 04 00
+[15111.851004] lcd_drv: PIC bat: ff 1e 3c 02 04 00
+[15123.980960] lcd_drv: PIC bat: ff 1d 3a 02 04 00
+[15136.150927] lcd_drv: PIC bat: ff 1d 3a 02 04 00
+[15148.350935] lcd_drv: PIC bat: ff 1c 38 02 04 00
+[15160.500845] lcd_drv: PIC bat: ff 1c 38 02 04 00
+[15172.640909] lcd_drv: PIC bat: ff 1a 34 02 04 00
+[15184.750939] lcd_drv: PIC bat: ff 19 32 02 04 00
+[15196.930896] lcd_drv: PIC bat: ff 19 32 02 04 00
+[15209.080834] lcd_drv: PIC bat: ff 16 2c 02 04 00
+[15221.260852] lcd_drv: PIC bat: ff 17 2e 02 04 00
+[15233.380792] lcd_drv: PIC bat: ff 16 2c 02 04 00
+[15245.500975] lcd_drv: PIC bat: ff 15 2a 02 04 00
+[15257.660888] lcd_drv: PIC bat: ff 13 26 02 04 00
+[15269.870888] lcd_drv: PIC bat: ff 11 22 02 04 00
