@@ -1,6 +1,25 @@
-/* PIC16LF1509 calibration tables extracted from stock firmware RAM dump */
-/* Table 1: cmd=0x2D (from IDA), 200 x int16 big-endian values [4..203] */
-/* Table 2: cmd=0x2E, 200 x int16 big-endian values [47..246] */
+/*
+ * WARNING (2026-03-24): These are NOT battery calibration tables!
+ *
+ * PIC firmware analysis revealed that cmd 0x2D/0x2E load NOTE TABLES
+ * (PWM frequencies for melodies) into PIC RAM 0x00A0/0x0120.
+ * Flash tables at 0x0A7E/0x0ACE contain actual melody note frequencies
+ * (e.g., 0x0526=1318Hz=E6, 0x04DC=1244Hz=D#6, etc.)
+ *
+ * The linear ramp data below (4,5,6,7,...) was extracted from stock
+ * firmware RAM dump but is GARBAGE — likely overwritten by I2C before
+ * the dump was taken, or represents sequential write test data.
+ *
+ * Battery ADC requires ONLY cmd 0x36 (no calibration tables needed).
+ * This file is kept for compatibility — PIC accepts these writes without
+ * errors, but the data is meaningless for battery monitoring.
+ *
+ * See: ideas/PIC_FIRMWARE_ANALYSIS.md for full protocol documentation.
+ */
+
+/* Originally labeled as: */
+/* Table 1: cmd=0x2D, 200 x int16 big-endian values [4..203] — MELODY NOTE TABLE 1 */
+/* Table 2: cmd=0x2E, 200 x int16 big-endian values [47..246] — MELODY NOTE TABLE 2 */
 
 static const u8 pic_calib1[401] = {
     0x2D, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08, 0x00, 0x09, 0x00, 0x0A, 0x00,

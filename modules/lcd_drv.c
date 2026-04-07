@@ -25,7 +25,7 @@
 #include "pic_calib.h"
 
 #define DEVICE_NAME  "lcd"
-#define LCD_DRV_VERSION "1.0"
+#define LCD_DRV_VERSION "V260401"
 #ifndef LCD_DRV_BUILD
 #define LCD_DRV_BUILD "unknown"
 #endif
@@ -63,7 +63,7 @@ static u8 *framebuffer;        /* kernel buffer */
 static struct page **fb_pages; /* pages for mmap */
 static int fb_npages;
 static struct task_struct *render_thread;
-static int target_fps = 0;  /* manual flush only — userspace controls refresh */
+static int __maybe_unused target_fps = 0;  /* manual flush only */
 static int fb_dirty = 1;
 static int splash_active = 1; /* demoscene animation until userspace takes over */
 
@@ -704,6 +704,8 @@ static struct i2c_adapter *touch_i2c_adap;
 
 static u8 pic_battery_raw[PIC_BATTERY_LEN];
 static int pic_battery_valid;
+static int pic_beep_request;  /* set from ioctl, executed in touch thread */
+static int pic_beep_ms = 150;
 
 /* Palmbus I2C raw helpers */
 static void i2c_raw_write(u8 val)
@@ -906,61 +908,94 @@ static int __maybe_unused pic_read_battery(void)
 
 /* Touch polling thread */
 /*
- * Read PIC battery via new SM0 registers (0x944/0x950/0x954).
- * Called from touch thread with SM0 in known state (after touch restore).
+ * Read PIC battery via OLD SM0 registers — EXACT stock kernel protocol.
+ * Captured via sm0_spy on stock kernel 3.10.14:
+ *   WRITE: ADDR=0x2A, START=1, DOUT=0x36, MODE=0
+ *   READ:  START=5 (6 bytes), MODE=1, poll DATARDY, read DATAIN
+ *
+ * Called from touch thread — SM0 is in known state after touch read.
+ * Touch read uses SM0_CTL1=0x90644042, then restores saved_ctl1.
+ * We use the SAME OLD SM0 registers (0x900-0x920).
  */
 static void pic_read_battery_palmbus(void)
 {
-    u8 resp[17] = {0};
+    u8 resp[6] = {0};
     u32 saved_ctl1 = gr(SM0_CTL1);
+    int i, p;
 
-    /* Restore SM0CTL0 for new-style operation */
-    gw(NEW_CTL0, saved_ctl1); udelay(10);
+    /*
+     * EXACT same protocol as lcd_drv init (which WORKS for buzzer!):
+     * CTL1 → CFG → ADDR → START → DOUT → STATUS, poll COMPLETE
+     * NO RSTCTRL, NO dummy, NO cmd 0x39
+     */
+    gw(SM0_CTL1, 0x90644042); udelay(10);
+    gw(SM0_CFG, 0xFA);
 
-    /* Wait idle */
-    { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+    /* WRITE cmd 0x39 (SSP REINIT — clears SSPOV, resets PIC I2C!) */
+    gw(SM0_DATA, PIC_ADDR);
+    gw(SM0_START, 1);
+    gw(SM0_DATAOUT, 0x39);
+    gw(SM0_STATUS, 0);
+    { int w; for (w = 0; w < 500; w++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+    mdelay(10);  /* stock: 10ms delay after 0x39 */
 
-    /* START */
-    gw(NEW_CTL1, N_START | N_TRI);
-    { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+    /* WRITE cmd 0x36 (ADC read) */
+    gw(SM0_CTL1, 0x90644042); udelay(10);
+    gw(SM0_CFG, 0xFA);
+    gw(SM0_DATA, PIC_ADDR);
+    gw(SM0_START, 1);
+    gw(SM0_DATAOUT, 0x36);
+    gw(SM0_STATUS, 0);
+    { int w; for (w = 0; w < 500; w++) { if (gr(0x918) & 0x01) break; udelay(10); } }
 
-    /* Write PIC read address */
-    gw(NEW_D0, (PIC_ADDR << 1) | 1);
-    gw(NEW_CTL1, N_WRITE | N_TRI | N_PGLEN(1));
-    { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+    pr_info("lcd_drv: PIC[v14] W: PS=%02x CTL0=%08x\n", gr(0x918), gr(SM0_CTL1));
 
-    /* Read 17 bytes in 8+8+1 chunks */
-    {
-        int rd_off = 0, remaining = 17;
-        while (remaining > 0) {
-            int chunk = (remaining > 8) ? 8 : remaining;
-            u32 cmd = (remaining > 8) ? N_READ : N_READ_L;
-            u32 d0, d1;
-            gw(NEW_CTL1, cmd | N_TRI | N_PGLEN(chunk));
-            { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
-            d0 = gr(NEW_D0);
-            d1 = gr(NEW_D1);
-            memcpy(&resp[rd_off], &d0, chunk > 4 ? 4 : chunk);
-            if (chunk > 4)
-                memcpy(&resp[rd_off + 4], &d1, chunk - 4);
-            rd_off += chunk;
-            remaining -= chunk;
+    udelay(5000);
+
+    /* === READ 6 bytes — re-init SM0 for read like touch does === */
+    gw(SM0_CTL1, 0x90644042); udelay(10);
+    gw(SM0_CFG, 0xFA);
+    gw(SM0_DATA, PIC_ADDR);
+    gw(SM0_START, 5);
+    gw(SM0_STATUS, 1);  /* read mode, triggers */
+
+    for (i = 0; i < 6; i++) {
+        for (p = 0; p < 100000; p++) {
+            if (gr(0x918) & 0x04) break;
+        }
+        if (p < 100000) {
+            udelay(10);
+            resp[i] = gr(SM0_DATAIN) & 0xFF;
+        } else {
+            resp[i] = 0xFF;
+            pr_info("lcd_drv: PIC R timeout@%d PS=%02x\n", i, gr(0x918));
+            break;  /* stop on first timeout */
         }
     }
 
-    /* STOP */
-    gw(NEW_CTL1, N_STOP | N_TRI);
-    { int p; for (p = 0; p < 5000; p++) { if (!(gr(NEW_CTL1) & N_TRI)) break; udelay(10); } }
+    /* Restore SM0_CTL1 for Linux I2C driver */
+    gw(SM0_CTL1, saved_ctl1); udelay(10);
 
-    /* Log and update battery data */
-    pr_info("lcd_drv: PIC poll: %02x %02x %02x %02x %02x %02x %02x %02x\n",
-            resp[0], resp[1], resp[2], resp[3],
-            resp[4], resp[5], resp[6], resp[7]);
+    /* Log */
+    pr_info("lcd_drv: PIC bat: %02x %02x %02x %02x %02x %02x\n",
+            resp[0], resp[1], resp[2], resp[3], resp[4], resp[5]);
 
-    /* Update if valid (not all zeros) */
-    if (resp[0] != 0x00 || resp[4] != 0x00 || resp[6] != 0x00) {
-        memcpy(pic_battery_raw, resp, 17);
-        pic_battery_valid = ((resp[6] & 0x40) == 0);
+    /* Parse: stock format byte0=ADC_lo, byte1=ADC_hi, byte2=status */
+    {
+        int adc = ((resp[1] & 0x03) << 8) | resp[0];
+        int adc_alt = (resp[1] << 8) | resp[0];
+        /* Validate: resp[3]==0x02 (vref) && resp[4]==0x04 (status marker) */
+        if (resp[3] == 0x02 && resp[4] == 0x04) {
+            pic_battery_raw[0] = resp[0];
+            pic_battery_raw[1] = resp[1];
+            pic_battery_raw[2] = resp[2];
+            pic_battery_raw[3] = resp[3];
+            pic_battery_raw[4] = resp[4];
+            pic_battery_raw[5] = resp[5];
+            pic_battery_valid = 1;
+            pr_info("lcd_drv: PIC ADC=%d (alt=%d) status=%02x\n",
+                    adc, adc_alt, resp[2]);
+        }
     }
 }
 
@@ -994,6 +1029,117 @@ static int touch_fn(void *data)
         if (battery_counter >= 200) {
             battery_counter = 0;
             pic_read_battery_palmbus();
+        }
+
+        /* PIC command from ioctl (beep or raw cmd) */
+        if (pic_beep_request) {
+            u32 s_ctl1 = gr(SM0_CTL1);
+            int bw;
+            pic_beep_request = 0;
+
+            /* Helper macro: SM0 init + 3-byte write (like battery write) */
+            #define PW3(b0,b1,b2) do { \
+                gw(SM0_CTL1, 0x90644042); udelay(10); \
+                gw(SM0_CFG, 0xFA); \
+                gw(SM0_DATA, PIC_ADDR); \
+                gw(SM0_START, 3); \
+                gw(SM0_DATAOUT, (b0)); \
+                gw(SM0_STATUS, 0); \
+                for(bw=0;bw<500;bw++){if(gr(0x918)&0x02)break;udelay(10);} \
+                udelay(1000); \
+                gw(SM0_DATAOUT, (b1)); \
+                for(bw=0;bw<500;bw++){if(gr(0x918)&0x02)break;udelay(10);} \
+                udelay(1000); \
+                gw(SM0_DATAOUT, (b2)); \
+                for(bw=0;bw<500;bw++){if(gr(0x918)&0x01)break;udelay(10);} \
+                mdelay(15); \
+            } while(0)
+
+            if (pic_beep_request == 2) {
+                /* Raw PIC cmd: ms field = cmd_byte | (data << 8)
+                 * If data present (ms > 0xFF): send 3-byte {cmd, 0x00, data>>8}
+                 * Else: send 1-byte {cmd} */
+                u8 raw_cmd = (u8)(pic_beep_ms & 0xFF);
+                u8 raw_data = (u8)((pic_beep_ms >> 8) & 0xFF);
+
+                /* 0x39 SSP reinit */
+                gw(SM0_CTL1, 0x90644042); udelay(10);
+                gw(SM0_CFG, 0xFA);
+                gw(SM0_DATA, PIC_ADDR);
+                gw(SM0_START, 1);
+                gw(SM0_DATAOUT, 0x39);
+                gw(SM0_STATUS, 0);
+                for(bw=0;bw<500;bw++){if(gr(0x918)&0x01)break;udelay(10);}
+                mdelay(10);
+
+                if (raw_data > 0) {
+                    /* 3-byte write: {cmd, 0x00, data}
+                     * Use FIXED 15ms delays (stock timing), no SDOEMPTY poll */
+                    gw(SM0_CTL1, 0x90644042); udelay(10);
+                    gw(SM0_CFG, 0xFA);
+                    gw(SM0_DATA, PIC_ADDR);
+                    gw(SM0_START, 3);
+                    gw(SM0_DATAOUT, raw_cmd);
+                    gw(SM0_STATUS, 0);
+                    mdelay(15);
+                    gw(SM0_DATAOUT, 0x00);
+                    mdelay(15);
+                    gw(SM0_DATAOUT, raw_data);
+                    mdelay(15);
+                    pr_info("lcd_drv: PIC cmd {%02x,00,%02x} 3-byte\n", raw_cmd, raw_data);
+                } else {
+                    /* 1-byte write */
+                    gw(SM0_CTL1, 0x90644042); udelay(10);
+                    gw(SM0_CFG, 0xFA);
+                    gw(SM0_DATA, PIC_ADDR);
+                    gw(SM0_START, 1);
+                    gw(SM0_DATAOUT, raw_cmd);
+                    gw(SM0_STATUS, 0);
+                    for(bw=0;bw<500;bw++){if(gr(0x918)&0x01)break;udelay(10);}
+                    pr_info("lcd_drv: PIC cmd 0x%02x 1-byte\n", raw_cmd);
+                }
+
+                gw(SM0_CTL1, s_ctl1); udelay(10);
+                goto beep_done;
+            }
+
+            /* 0x39 SSP reinit ONCE */
+            gw(SM0_CTL1, 0x90644042); udelay(10);
+            gw(SM0_CFG, 0xFA);
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 1);
+            gw(SM0_DATAOUT, 0x39);
+            gw(SM0_STATUS, 0);
+            for(bw=0;bw<500;bw++){if(gr(0x918)&0x01)break;udelay(10);}
+            mdelay(10);
+
+            /* WAKE: {0x33, 0x00, 0x01} = 1 note */
+            PW3(0x33, 0x00, 0x01);
+
+            /* Table1: {0x2D, freq_hi, freq_lo} = 0x0496 (D#5, 1174)
+             * Stock byte-swap: 0x0496 → {0x96, 0x04} */
+            PW3(0x2D, 0x96, 0x04);
+
+            /* Table2: {0x2E, dur_hi, dur_lo} = 600ms = 0x0258
+             * Byte-swap: {0x58, 0x02} */
+            PW3(0x2E, 0x58, 0x02);
+
+            /* Play: {0x2F, 0x00, 0x01} */
+            PW3(0x2F, 0x00, 0x01);
+
+            gw(SM0_CTL1, s_ctl1); udelay(10);
+            /* Also test: 1-byte LED cmd (0x30=blink) — visible effect! */
+            gw(SM0_CTL1, 0x90644042); udelay(10);
+            gw(SM0_CFG, 0xFA);
+            gw(SM0_DATA, PIC_ADDR);
+            gw(SM0_START, 1);
+            gw(SM0_DATAOUT, 0x30);  /* LED BLINK */
+            gw(SM0_STATUS, 0);
+            for(bw=0;bw<500;bw++){if(gr(0x918)&0x01)break;udelay(10);}
+
+            pr_info("lcd_drv: beep sent + LED blink (0x30)\n");
+beep_done:
+            #undef PW3
         }
 
         msleep(50);
@@ -1094,6 +1240,20 @@ static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
             return -EFAULT;
         return 0;
     }
+    if (cmd == 9) {
+        int val = (int)arg;
+        if (val >= 10000) {
+            /* Raw 1-byte PIC cmd: arg = cmd + 10000 */
+            pic_beep_ms = val - 10000;  /* abuse ms field as raw cmd */
+            pic_beep_request = 2;       /* 2 = raw cmd mode */
+        } else {
+            /* Beep: arg = duration in ms */
+            if (val <= 0 || val > 5000) val = 150;
+            pic_beep_ms = val;
+            pic_beep_request = 1;
+        }
+        return 0;
+    }
     if (cmd == 8) {
         /* PIC SM0 write: send up to 8 bytes to PIC via auto mode.
          * arg = pointer to struct { u8 len; u8 data[8]; } */
@@ -1105,6 +1265,17 @@ static long lcd_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
         if (p[0] < 1 || p[0] > 8)
             return -EINVAL;
 
+        /* Send cmd 0x39 first (SSP REINIT — clears PIC SSPOV!) */
+        gw(SM0_CTL1, 0x90644042); udelay(10);
+        gw(SM0_CFG, 0xFA);
+        gw(SM0_DATA, PIC_ADDR);
+        gw(SM0_START, 1);
+        gw(SM0_DATAOUT, 0x39);
+        gw(SM0_STATUS, 0);
+        { int w; for (w = 0; w < 500; w++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+        mdelay(10);
+
+        /* Now send actual command */
         gw(SM0_CTL1, 0x90644042); udelay(10);
         gw(SM0_CFG, 0xFA);
         gw(SM0_DATA, PIC_ADDR);
@@ -1206,7 +1377,17 @@ static int __init lcd_drv_init(void)
         u32 saved_ctl1 = gr(SM0_CTL1);
         u32 saved_cfg = gr(SM0_CFG);
 
-        pr_info("lcd_drv: PIC init 0x41 + calibration...\n");
+        pr_info("lcd_drv: PIC init 0x39 + 0x41 + calibration...\n");
+
+        /* Step -1: SSP REINIT {0x39} — clear SSPOV from i2c-mt7621 boot! */
+        gw(SM0_CTL1, 0x90644042); udelay(10);
+        gw(SM0_CFG, 0xFA);
+        gw(SM0_DATA, PIC_ADDR);
+        gw(SM0_START, 1);
+        gw(SM0_DATAOUT, 0x39);
+        gw(SM0_STATUS, 0);
+        { int p; for (p = 0; p < 500; p++) { if (gr(0x918) & 0x01) break; udelay(10); } }
+        mdelay(10);
 
         /* Step 0: PIC INIT {0x41} — required for ADC to start.
          * Side effect: buzzer ON. Immediately send buzzer OFF after. */
@@ -1397,8 +1578,8 @@ static int __init lcd_drv_init(void)
     /* Start touch thread */
     touch_thread = kthread_run(touch_fn, NULL, "lcd_touch");
 
-    pr_info("lcd_drv v%s (%s): /dev/lcd ready (fb=%dx%d, %d bytes, fps=%d)\n",
-            LCD_DRV_VERSION, LCD_DRV_BUILD, LCD_W, LCD_H, FB_SIZE, target_fps);
+    pr_info("lcd_drv %s by Sublimity — START (fb=%dx%d, %d bytes)\n",
+            LCD_DRV_VERSION, LCD_W, LCD_H, FB_SIZE);
     return 0;
 }
 
@@ -1411,10 +1592,11 @@ static void __exit lcd_drv_exit(void)
     vfree(framebuffer);
     kfree(fb_pages);
     if (gpio_base) iounmap(gpio_base);
-    pr_info("lcd_drv: unloaded\n");
+    pr_info("lcd_drv %s by Sublimity — STOP\n", LCD_DRV_VERSION);
 }
 
 module_init(lcd_drv_init);
 module_exit(lcd_drv_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("ILI9341 framebuffer driver for Almond 3S");
+MODULE_DESCRIPTION("ILI9341 LCD + SX8650 Touch + PIC16 Battery for Almond 3S");
+MODULE_AUTHOR("Sublimity");

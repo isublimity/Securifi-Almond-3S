@@ -1,11 +1,11 @@
 #!/usr/bin/ucode
 //
-// lcd_ui.uc — Almond 3S LCD UI (ucode native)
+// lcd_ui.uc V260401 by Sublimity
 //
 // Архитектура: uloop (event loop) + ubus (system data) + uci (config)
-// Данные: /tmp/lcd_data.json (от data_collector) + ubus supplement
-// Рендер: JSON через unix socket → lcd_render (socat pipe)
-// Тач: /tmp/.lcd_touch (от lcd_touch_poll)
+// Данные: /tmp/lcd_data.json (от data_collector)
+// Рендер: JSON через persistent unix socket → lcd_server / lcd_render
+// Тач: ioctl /dev/lcd (kernel lcd_drv touch thread)
 //
 // Build: scp lcd_ui.uc root@192.168.11.1:/usr/bin/lcd_ui.uc
 // Run:   ucode /usr/bin/lcd_ui.uc &
@@ -13,6 +13,7 @@
 
 'use strict';
 
+import { AF_UNIX, SOCK_STREAM, create as create_socket } from 'socket';
 let fs = require("fs");
 
 // No PID lock needed — procd manages single instance (no auto-restart loop below)
@@ -116,15 +117,21 @@ function lcd_text(x, y, text, color, bg, sz) {
         x, y, text, color ?? C.white, bg ?? C.bg, sz ?? 2));
 }
 
+// Native socket — connect/send/close per flush (fast, no deadlock)
 function lcd_flush() {
     if (!length(cmds)) return;
     push(cmds, '{"cmd":"flush"}');
     let payload = join("\n", cmds) + "\n";
     cmds = [];
-    let p = fs.popen("socat -u - UNIX-CONNECT:" + SOCK_PATH + " 2>/dev/null", "w");
-    if (p) {
-        p.write(payload);
-        p.close();
+
+    let s;
+    try {
+        s = create_socket(AF_UNIX, SOCK_STREAM, 0);
+        s.connect(SOCK_PATH);
+        s.send(payload);
+        s.close();
+    } catch(e) {
+        try { s.close(); } catch(e2) {}
     }
 }
 
@@ -291,16 +298,38 @@ function refresh_data() {
 //  TOUCH INPUT
 // =============================================
 
+// Touch: read directly from /dev/lcd via ioctl 1
+// Returns {x, y} on press, null if not pressed
+// Uses tiny C helper or direct /dev/lcd read
+let touch_fd = null;
+let touch_was_pressed = false;
+
 function read_touch() {
-    // touch_poll daemon writes file only on press edge (latch).
-    // Coordinates are already in pixels (lcd_drv maps internally).
-    // We read and unlink — next tap creates a new file.
+    // Method 1: read touch file if touch_poll is running (legacy)
     let raw = fs.readfile(TOUCH_PATH);
-    if (!raw) return null;
-    fs.unlink(TOUCH_PATH);
-    let m = match(trim(raw), /^(\d+)\s+(\d+)/);
-    if (!m) return null;
-    return { x: +m[1], y: +m[2] };
+    if (raw) {
+        fs.unlink(TOUCH_PATH);
+        let m = match(trim(raw), /^(\d+)\s+(\d+)/);
+        if (m) return { x: +m[1], y: +m[2] };
+    }
+    // Poll /dev/lcd via the C touch helper
+    let p = fs.popen("/tmp/touch_read 2>/dev/null", "r");
+    if (p) {
+        let line = p.read("line");
+        p.close();
+        if (line) {
+            let m = match(trim(line), /^(\d+)\s+(\d+)\s+(\d+)/);
+            if (m && +m[3] > 0) {
+                if (!touch_was_pressed) {
+                    touch_was_pressed = true;
+                    return { x: +m[1], y: +m[2] };
+                }
+            } else {
+                touch_was_pressed = false;
+            }
+        }
+    }
+    return null;
 }
 
 
@@ -309,10 +338,29 @@ function read_touch() {
 // =============================================
 
 function lte_quality(csq) {
-    if (csq > 25) return { label: "Excellent", color: C.green, bg: "#002000" };
-    if (csq > 15) return { label: "Good",      color: C.green, bg: "#001000" };
-    if (csq > 5)  return { label: "Fair",       color: C.yellow, bg: "#080800" };
-    return { label: "Weak", color: C.red, bg: "#100000" };
+    if (csq > 25) return { label: "Excellent", bars: 5, color: C.green, bg: "#002000" };
+    if (csq > 18) return { label: "Good",      bars: 4, color: C.green, bg: "#001000" };
+    if (csq > 10) return { label: "OK",        bars: 3, color: C.yellow, bg: "#080800" };
+    if (csq > 5)  return { label: "Weak",      bars: 2, color: C.yellow, bg: "#080800" };
+    if (csq > 0)  return { label: "Bad",       bars: 1, color: C.red, bg: "#100000" };
+    return { label: "No signal", bars: 0, color: C.red, bg: "#100000" };
+}
+
+// Draw signal bars centered: n = bars (0-5), color, big = large bars
+function draw_signal_bars(n, color, bg) {
+    // Large centered bars: 5 bars, each 20px wide, 8px gap, centered on 320px screen
+    // Total width: 5*20 + 4*8 = 132px, start x = (320-132)/2 = 94
+    let base_x = 94, base_y = 190;  // bottom of bars area
+    for (let i = 0; i < 5; i++) {
+        let bh = 20 + i * 10;  // bar height: 20,30,40,50,60
+        let bx = base_x + i * 28;
+        let by = base_y - bh;
+        let bc = (i < n) ? color : "#222222";
+        lcd_rect(bx, by, 20, bh, bc);
+    }
+    // Label below bars
+    let lq = lte_quality(0);  // dummy, caller should pass label
+    lcd_text(base_x, base_y + 4, sprintf("%d/5", n), color, bg, 2);
 }
 
 function fmt_bytes(b) {
@@ -362,6 +410,56 @@ function draw_header(title, bg_c) {
     bg_c ??= C.hdr;
     lcd_rect(0, 0, LCD_W, HDR_H, bg_c);
     lcd_text(4, 2, title ?? "ALMOND 3S", C.white, bg_c, 2);
+
+    // Signal bars centered in header with black background
+    let d = st.data;
+    let csq = int(+(d?.lte?.csq ?? 0));
+    let lq = lte_quality(csq);
+    let bx = 136;
+    lcd_rect(bx - 3, 0, 5 * 9 + 4, HDR_H, "#000000");
+    for (let i = 0; i < 5; i++) {
+        let bh = 4 + i * 3;
+        let by = 14 - bh;
+        let bc = (i < lq.bars) ? lq.color : "#444444";
+        lcd_rect(bx + i * 9, by, 7, bh, bc);
+    }
+
+    // Battery icon + percentage (always shown, right of signal bars)
+    {
+        let bat = d?.battery;
+        let bpct = int(+(bat?.percent ?? 0));
+        let bchg = bat?.charging;
+        let bvalid = bat?.valid;
+        let bat_x = 188;
+        let bat_bg = "#000000";
+
+        // Black background
+        lcd_rect(bat_x - 2, 0, 62, HDR_H, bat_bg);
+
+        // Color
+        let bat_color = !bvalid ? C.gray :
+            bchg ? C.cyan :
+            bpct > 20 ? C.green :
+            bpct > 5 ? C.yellow : C.red;
+
+        // Battery body
+        lcd_rect(bat_x, 4, 14, 10, "#666666");
+        lcd_rect(bat_x + 14, 7, 2, 4, "#666666");
+        lcd_rect(bat_x + 1, 5, 12, 8, bat_bg);
+
+        // Fill
+        let fill_w = bvalid ? int(bpct * 12 / 100) : 0;
+        if (fill_w > 0)
+            lcd_rect(bat_x + 1, 5, fill_w, 8, bat_color);
+
+        // Charging "+"
+        if (bchg)
+            lcd_text(bat_x + 4, 2, "+", C.cyan, bat_bg, 1);
+
+        // Text
+        lcd_text(bat_x + 18, 2, bvalid ? bpct + "%" : "?", bat_color, bat_bg, 2);
+    }
+
     lcd_text(LCD_W - 60, 2, clock_str(), C.cyan, bg_c, 2);
 }
 
@@ -400,8 +498,8 @@ function draw_dashboard() {
     lcd_rect(0, 20, LCD_W, 16, vbg);
     let vpn_label = vpn ? (vtype + " ON") : "VPN OFF";
     lcd_text(4 + ox, 22 + oy, vpn_label, vpn ? C.green : C.red, vbg, 2);
-    let ping = int(+(d?.vpn?.ping_ms ?? d?.ping?.google_ms ?? 0));
-    lcd_text(160 + ox, 22 + oy, sprintf("%dms", ping), C.white, vbg, 2);
+    let ping = int(+(d?.vpn?.ping_ms ?? d?.ping?.google_ms ?? -1));
+    lcd_text(160 + ox, 22 + oy, ping < 0 ? "FAIL" : sprintf("%dms", ping), ping < 0 ? C.red : C.white, vbg, 2);
     let eip = d?.vpn?.external_ip;
     if (vpn && eip)
         lcd_text(220 + ox, 22 + oy, eip, C.accent, vbg, 1);
@@ -469,7 +567,7 @@ function draw_menu() {
         // 2: LTE
         let csq = int(+(d?.lte?.csq ?? 0));
         let lq = lte_quality(csq);
-        draw_btn(2, sprintf("LTE %d", csq),
+        draw_btn(2, sprintf("LTE %s", lq.label),
             d?.lte?.operator ?? "?",
             lq.color, C.gray);
 
@@ -538,12 +636,12 @@ function draw_vpn_page() {
 
     // Status bar
     let eip = d?.vpn?.external_ip ?? "";
-    let ping_v = int(+(d?.vpn?.ping_ms ?? 0));
+    let ping_v = int(+(d?.vpn?.ping_ms ?? -1));
     if (vpn) {
         let vbg = "#002000";
         lcd_rect(0, 20, LCD_W, 16, vbg);
         lcd_text(4, 22, vtype + " ON", C.green, vbg, 2);
-        lcd_text(120, 22, sprintf("%dms", ping_v), C.white, vbg, 2);
+        lcd_text(120, 22, ping_v < 0 ? "FAIL" : sprintf("%dms", ping_v), ping_v < 0 ? C.red : C.white, vbg, 2);
         lcd_text(200, 24, eip, C.accent, vbg, 1);
     } else {
         lcd_rect(0, 20, LCD_W, 16, "#200000");
@@ -569,7 +667,7 @@ function draw_vpn_page() {
 
         if (active) {
             lcd_text(b.x + 8, b.y + 32, "ACTIVE", C.green, bg, 2);
-            lcd_text(b.x + 90, b.y + 34, sprintf("%dms", ping_v), C.white, bg, 1);
+            lcd_text(b.x + 90, b.y + 34, ping_v < 0 ? "FAIL" : sprintf("%dms", ping_v), ping_v < 0 ? C.red : C.white, bg, 1);
         } else if (i == 3 && !vpn) {
             lcd_text(b.x + 8, b.y + 32, "Direct", C.gray, bg, 2);
         }
@@ -663,7 +761,8 @@ function draw_info_page() {
     y += 12;
     lcd_text(4, y, sprintf("LTE IP: %s", d?.lte?.ip ?? "?"), C.gray, C.bg, 1);
     y += 12;
-    lcd_text(4, y, sprintf("Google ping: %dms", int(+(d?.ping?.google_ms ?? 0))), C.gray, C.bg, 1);
+    let gp = int(+(d?.ping?.google_ms ?? -1));
+    lcd_text(4, y, gp < 0 ? "Google ping: FAIL" : sprintf("Google ping: %dms", gp), gp < 0 ? C.red : C.gray, C.bg, 1);
     y += 14;
 
     // Board info from ubus
@@ -707,9 +806,11 @@ function draw_ip_page() {
         vpn ? C.green : C.red, C.bg, 2);
     y += 24;
 
-    let ping_g = int(+(d?.ping?.google_ms ?? 0));
-    let ping_v = int(+(d?.vpn?.ping_ms ?? 0));
-    lcd_text(4, y, sprintf("Google: %dms  VPN: %dms", ping_g, ping_v), C.white, C.bg, 1);
+    let ping_g = int(+(d?.ping?.google_ms ?? -1));
+    let ping_v = int(+(d?.vpn?.ping_ms ?? -1));
+    let pg_s = ping_g < 0 ? "FAIL" : sprintf("%dms", ping_g);
+    let pv_s = ping_v < 0 ? "FAIL" : sprintf("%dms", ping_v);
+    lcd_text(4, y, sprintf("Google: %s  VPN: %s", pg_s, pv_s), C.white, C.bg, 1);
     y += 14;
 
     // LTE IP for reference
@@ -785,11 +886,11 @@ function draw_lte_page() {
         }
     }
 
-    // Graph 3: Ping
-    let ping = int(+(d?.ping?.google_ms ?? 0));
+    // Graph 3: Ping (-1 = fail/timeout)
+    let ping = int(+(d?.ping?.google_ms ?? -1));
     let pm = arr_minmax(hist.ping);
-    let ping_c = ping < 50 ? C.green : (ping < 150 ? C.yellow : C.red);
-    lcd_text(4, 150, sprintf("Ping: %dms", ping), ping_c, C.bg, 1);
+    let ping_c = ping < 0 ? C.red : (ping < 50 ? C.green : (ping < 150 ? C.yellow : C.red));
+    lcd_text(4, 150, ping < 0 ? "Ping: FAIL" : sprintf("Ping: %dms", ping), ping_c, C.bg, 1);
     lcd_text(120, 150, sprintf("min:%d max:%d", pm.min, pm.max), C.gray, C.bg, 1);
 
     let ping_max = pm.max > 200 ? pm.max : 200;

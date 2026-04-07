@@ -209,9 +209,30 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    /* touch_poll daemon — background poller */
-    if (argc >= 2 && argv[1][0] == 'd') {
+    /* touch_poll daemon — background poller (fork) */
+    if (argc >= 2 && strcmp(argv[1], "daemon") == 0) {
         return daemon_mode(fd);
+    }
+
+    /* touch_poll daemon_fg — foreground poller (for procd) */
+    if (argc >= 2 && strcmp(argv[1], "daemon_fg") == 0) {
+        signal(SIGTERM, sig_handler);
+        signal(SIGINT, sig_handler);
+        int was_pressed = 0;
+        while (running) {
+            int data[3] = {0, 0, 0};
+            ioctl(fd, 1, data);
+            if (data[2] && !was_pressed) {
+                FILE *out = fopen(TOUCH_FILE, "w");
+                if (out) { fprintf(out, "%d %d\n", data[0], data[1]); fclose(out); }
+                was_pressed = 1;
+            } else if (!data[2]) {
+                was_pressed = 0;
+            }
+            usleep(50000);
+        }
+        close(fd);
+        return 0;
     }
 
     /* Default: demo mode */

@@ -105,6 +105,14 @@ echo "14c3 7662" > /sys/bus/pci/drivers/mt7615e/new_id 2>/dev/null' /etc/rc.loca
 setup_lte() {
     log "=== LTE setup ==="
 
+    # Remove conflicting interfaces that fight for /dev/cdc-wdm0
+    for iface in $(uci show network 2>/dev/null | grep "device='/dev/cdc-wdm0'" | cut -d. -f2 | sort -u); do
+        [ "$iface" = "lte" ] && continue
+        log "  Removing conflicting interface '$iface' (proto=$(uci -q get network.$iface.proto))"
+        uci delete "network.$iface"
+        uci commit network
+    done
+
     # GPIO reset modem (Fibocom needs hard reset after cold boot)
     log "  GPIO reset modem..."
     ifdown lte 2>/dev/null
@@ -163,14 +171,28 @@ setup_lte() {
     uci set network.lte.metric='100'
     uci commit network
 
-    # Firewall: add lte to wan zone
+    # Firewall: rebuild wan zone network list (use add_list to avoid quoting issues)
     local WAN_ZONE=$(uci show firewall | grep "name='wan'" | head -1 | cut -d. -f1-2)
     if [ -n "$WAN_ZONE" ]; then
-        local NETS=$(uci get "$WAN_ZONE.network" 2>/dev/null)
-        echo "$NETS" | grep -q "lte" || {
-            uci set "$WAN_ZONE.network=$NETS lte"
-            uci commit firewall
-        }
+        # Collect extra interfaces (beyond wan/wan6/lte) that actually exist
+        local EXTRA=""
+        for net in $(uci -q get "$WAN_ZONE.network"); do
+            case "$net" in wan|wan6|lte) continue ;; esac
+            if uci -q get "network.$net" >/dev/null 2>&1; then
+                EXTRA="$EXTRA $net"
+            else
+                log "  Removing stale '$net' from wan zone"
+            fi
+        done
+        # Rebuild cleanly with add_list
+        uci -q delete "$WAN_ZONE.network"
+        uci add_list "$WAN_ZONE.network=wan"
+        uci add_list "$WAN_ZONE.network=wan6"
+        uci add_list "$WAN_ZONE.network=lte"
+        for net in $EXTRA; do
+            uci add_list "$WAN_ZONE.network=$net"
+        done
+        uci commit firewall
     fi
 
     # Bring up
@@ -255,20 +277,37 @@ EOF
 setup_ui() {
     log "=== LCD UI setup ==="
 
+    # Ensure lcd_drv autoload
+    if [ ! -f /etc/modules.d/90-lcd-drv ]; then
+        echo "lcd_drv" > /etc/modules.d/90-lcd-drv
+        log "  Created /etc/modules.d/90-lcd-drv (autoload)"
+    fi
+
+    # Fix /dev/lcd if it's a regular file instead of char device
+    if [ -e /dev/lcd ] && [ ! -c /dev/lcd ]; then
+        rm -f /dev/lcd
+        log "  Removed stale /dev/lcd (was regular file)"
+    fi
+
+    # Load lcd_drv if not loaded
+    if ! lsmod | grep -q lcd_drv; then
+        insmod /lib/modules/$(uname -r)/lcd_drv.ko 2>/dev/null && log "  Loaded lcd_drv.ko"
+    fi
+
     # Скачиваем бинарники и скрипты
     log "  Downloading binaries..."
-    wget -qO /usr/bin/lcd_render    "$REPO/out/lcd_render"    2>/dev/null
-    wget -qO /usr/bin/touch_poll    "$REPO/out/touch_poll"    2>/dev/null
-    wget -qO /usr/bin/data_collector "$REPO/out/data_collector" 2>/dev/null
+    wget -qO /usr/bin/lcd_render     "$REPO/out/lcd_render"     2>/dev/null
+    wget -qO /usr/bin/touch_poll     "$REPO/out/touch_poll"     2>/dev/null
+    wget -qO /usr/bin/data_collector "$REPO/out/data_collector"  2>/dev/null
     chmod +x /usr/bin/lcd_render /usr/bin/touch_poll /usr/bin/data_collector
 
     log "  Downloading UI script..."
-    wget -qO /usr/bin/lcd_ui.uc     "$REPO/modules/lcd_ui.uc" 2>/dev/null
+    wget -qO /usr/bin/lcd_ui.uc      "$REPO/modules/lcd_ui.uc"  2>/dev/null
     chmod +x /usr/bin/lcd_ui.uc
 
     log "  Downloading settings..."
     mkdir -p /etc/lcd/scripts
-    wget -qO /etc/lcd/settings.lua  "$REPO/modules/settings.lua" 2>/dev/null
+    wget -qO /etc/lcd/settings.lua   "$REPO/modules/settings.lua" 2>/dev/null
 
     # Init script (S99 — after network)
     cat > /etc/init.d/lcd_ui << 'INITEOF'
@@ -277,16 +316,19 @@ START=99
 STOP=10
 USE_PROCD=1
 start_service() {
-    [ -c /dev/lcd ] && echo -n "touch_start" > /dev/lcd 2>/dev/null && sleep 1
+    [ -c /dev/lcd ] || return
     procd_open_instance lcd_render
     procd_set_param command /usr/bin/lcd_render
+    procd_set_param respawn
+    procd_close_instance
+    procd_open_instance touch_poll
+    procd_set_param command /usr/bin/touch_poll daemon_fg
     procd_set_param respawn
     procd_close_instance
     procd_open_instance data_collector
     procd_set_param command /usr/bin/data_collector
     procd_set_param respawn
     procd_close_instance
-    /usr/bin/touch_poll daemon
     sleep 2
     procd_open_instance lcd_ui
     procd_set_param command /usr/bin/ucode /usr/bin/lcd_ui.uc
@@ -294,7 +336,6 @@ start_service() {
     procd_set_param stderr 1
     procd_close_instance
 }
-stop_service() { killall touch_poll 2>/dev/null; }
 INITEOF
     chmod +x /etc/init.d/lcd_ui
     /etc/init.d/lcd_ui enable
@@ -317,7 +358,7 @@ if [ $# -eq 0 ]; then
     echo "  --setup_wifi    WiFi 2.4G + 5G (Almond / Almond-5G)"
     echo "  --setup_lte     LTE modem (Fibocom L860-GL, APN=internet)"
     echo "  --setup_vpn     WireGuard hotplug + UI scripts"
-    echo "  --setup_ui      LCD UI (lcd_render + touch_poll + data_collector + lcd_ui.uc)"
+    echo "  --setup_ui      LCD UI (lcd_render + data_collector + touch_poll + lcd_ui.uc)"
     exit 0
 fi
 

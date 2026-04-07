@@ -3,10 +3,10 @@
 # build.sh — Сборка модулей и утилит для Securifi Almond 3S
 #
 # Компоненты:
-#   lcd_drv.ko      — kernel module (LCD + touch, NO PIC)
-#   lcd_render      — JSON socket renderer
-#   touch_poll      — touch polling daemon
-#   data_collector  — LTE/WiFi/VPN stats collector
+#   lcd_drv.ko      — kernel module (LCD + touch + PIC battery)
+#   lcd_render      — JSON socket renderer (framebuffer)
+#   touch_poll      — touch polling + backlight control
+#   data_collector  — LTE/WiFi/VPN/Battery stats collector
 #   lcd_ui.uc       — UI скрипт (ucode)
 #
 # Использование:
@@ -59,23 +59,26 @@ build_userspace() {
     echo "=== Сборка userspace (zig cc, mipsel-musleabi) ==="
     local ZIG="zig cc -target mipsel-linux-musleabi -Os -static"
 
+    $ZIG -o "$OUT_DIR/lcd_server" "$MODULES_DIR/lcd_server.c" -lpthread
+    echo ">>> lcd_server"
+
+    $ZIG -o "$OUT_DIR/data_collector" "$MODULES_DIR/data_collector.c"
+    echo ">>> data_collector"
+
     $ZIG -o "$OUT_DIR/lcd_render" "$MODULES_DIR/lcd_render.c"
     echo ">>> lcd_render"
 
     $ZIG -o "$OUT_DIR/touch_poll" "$MODULES_DIR/touch_poll.c"
     echo ">>> touch_poll"
 
-    $ZIG -o "$OUT_DIR/data_collector" "$MODULES_DIR/data_collector.c"
-    echo ">>> data_collector"
-
-    ls -la "$OUT_DIR/lcd_render" "$OUT_DIR/touch_poll" "$OUT_DIR/data_collector"
+    ls -la "$OUT_DIR/lcd_server" "$OUT_DIR/lcd_render" "$OUT_DIR/data_collector" "$OUT_DIR/touch_poll"
 }
 
 # === Deploy ===
 deploy() {
     echo "=== Деплой на $ROUTER ==="
 
-    ssh "$ROUTER" '/etc/init.d/lcd_ui stop 2>/dev/null; killall -9 ucode data_collector touch_poll 2>/dev/null; sleep 2' || true
+    ssh "$ROUTER" '/etc/init.d/lcd_ui stop 2>/dev/null; killall -9 ucode lcd_render data_collector touch_poll 2>/dev/null; sleep 2' || true
 
     scp -O "$OUT_DIR/lcd_render" "$OUT_DIR/touch_poll" "$OUT_DIR/data_collector" "$ROUTER:/usr/bin/"
     scp -O "$MODULES_DIR/lcd_ui.uc" "$ROUTER:/usr/bin/"
@@ -89,7 +92,7 @@ deploy() {
         scp -O "$OUT_DIR/lcd_drv.ko" "$ROUTER:/lib/modules/\$(ssh $ROUTER 'uname -r')/lcd_drv.ko"
     fi
 
-    ssh "$ROUTER" "chmod +x /usr/bin/lcd_render /usr/bin/touch_poll /usr/bin/data_collector /usr/bin/lcd_ui.uc"
+    ssh "$ROUTER" "chmod +x /usr/bin/lcd_render /usr/bin/touch_poll /usr/bin/data_collector /usr/bin/lcd_ui.uc 2>/dev/null"
     ssh "$ROUTER" "/etc/init.d/lcd_ui start 2>/dev/null"
 
     echo ">>> Deploy OK"

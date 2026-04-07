@@ -253,8 +253,7 @@ static void handle_cmd(const char *json)
         return;
     }
 
-    /* Auto-flush after draw commands */
-    flush_cmd();
+    /* No auto-flush — only "flush" command triggers write to LCD */
 }
 
 int main(int argc, char *argv[])

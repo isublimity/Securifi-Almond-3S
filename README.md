@@ -16,8 +16,8 @@ Running OpenWrt on Securifi Almond 3S with full hardware support: ILI9341 LCD di
 | Display | 2.8" IPS 240x320, ILI9341 | 8-bit parallel 8080-II via GPIO | **Working** |
 | Touchscreen | SX8650 resistive 4-wire | I2C bus 0, addr 0x48 | **Working** |
 | LTE Modem | Fibocom L860-GL (Cat16) | miniPCIe USB MBIM | Working |
-| Battery | 2S Li-Ion, BQ24133 charger | PIC16 I2C | WIP |
-| Power MCU | PIC16LF1509 | I2C bus 0, addr 0x2A | WIP |
+| Battery | 2S Li-Ion, BQ24133 charger | PIC16 I2C | WIP (firmware dumped, protocol known) |
+| Power MCU | PIC16LF1509 | I2C bus 0, addr 0x2A | WIP (firmware fully analyzed) |
 
 ## LCD UI Architecture
 
@@ -92,7 +92,7 @@ GPIO DATA register is set HIGH once. Pin levels controlled through DIR register:
 - DIR=1 (output) → pin HIGH
 - DIR=0 (input) → pin floats LOW
 
-Kernel GPIO pins are claimed via `gpio_request()` + `gpio_direction_output()` to prevent mt7621_gpio driver from overwriting DIR.
+**WARNING**: Do NOT use `gpio_request()` on bank0 pins — it conflicts with mt7621_gpio driver and kills MT7530 LAN (IRQ #23). Use direct DIR register bit-bang only.
 
 ## lcd_drv.ko — /dev/lcd Interface
 
@@ -172,6 +172,7 @@ System → Backup/Flash → Flash new firmware
 - **Watchcat dangerous** — can hang router with white screen. Disable.
 - **First boot**: 11 min for jffs2 init on 64MB flash.
 - **I2C shared bus** — lcd_drv uses mutex to share I2C between touch (SX8650) and battery (PIC16)
+- **PIC16 battery** — firmware dumped and fully analyzed. Live ADC requires cmd 0x36 + I2C read with clock stretching support (WIP)
 
 ## Source Code
 
