@@ -139,7 +139,7 @@ See [Battery_Drain/](Battery_Drain/) for discharge analysis and remaining time e
 - OpenWrt base: [fildunsky/openwrt](https://github.com/fildunsky/openwrt)
 - Display/touch protocol reverse engineered from stock firmware (kernel 3.10.14)
 - PIC16 firmware dumped and analyzed via PICkit 3
-- Community: [4PDA forum](https://4pda.to/)
+- Community: [4PDA forum](https://4pda.to/forum/index.php?showtopic=1116429)
 
 ## License
 
