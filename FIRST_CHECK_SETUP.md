@@ -11,122 +11,98 @@ ip link show | grep 'state UP'
 ### 2. WiFi
 ```bash
 iwinfo | grep ESSID
-# Ожидание: Almond3S (2.4G) + Almond3S-5G (5G)
+# Ожидание: Almond-5G (5G, ch165) + Almond (2.4G, ch6)
 ```
 
 ### 3. LCD
 ```bash
 lsmod | grep lcd
-# Ожидание: lcd_drv loaded, дисплей показывает splash
+# Ожидание: lcd_drv loaded, дисплей показывает splash/boot console
+ls /dev/lcd
 ```
 
-### 4. LTE модем
+### 4. LTE модем (Fibocom L860-GL)
 ```bash
-ls /dev/ttyUSB* /dev/cdc-wdm0
-# Ожидание: ttyUSB0-3 + cdc-wdm0
-uqmi -d /dev/cdc-wdm0 --get-serving-system
-# Ожидание: registration=registered
+ls /dev/cdc-wdm0 /dev/ttyACM*
+# Ожидание: cdc-wdm0 + ttyACM0-2
+umbim -n -d /dev/cdc-wdm0 caps
+# Ожидание: MBIM responds
 ```
 
-Если SIM "illegal state":
+Если модем не определяется — GPIO reset:
 ```bash
-killall -9 uqmi
-echo -ne "AT+CFUN=1,1\r\n" > /dev/ttyUSB2  # restart modem
-sleep 20
+MODEM_GPIO="/sys/devices/platform/1e000000.palmbus/1e000600.gpio/gpiochip1/gpio/modem_reset/value"
+echo 1 > "$MODEM_GPIO"; sleep 3; echo 0 > "$MODEM_GPIO"
+sleep 15
 ifup lte
 ```
 
-### 5. VPN (OpenVPN)
+### 5. VPN
 ```bash
-pidof openvpn
-tail -5 /tmp/ovpn.log
-ip addr show tun0 | grep inet
-curl -s ifconfig.me  # должен показать IP VPN сервера
-```
-
-### 6. WiFi клиенты через VPN
-
-**Критическая проблема:** OpenWrt nftables НЕ добавляет tun0 (OpenVPN) в firewall автоматически. Три правила нужны:
-
-1. **srcnat** — tun0 должен прыгать в srcnat_wan (masquerade)
-2. **srcnat_wan** — masquerade для br-lan→tun0
-3. **forward_lan** — разрешить forwarding lan→tun0
-
-```bash
-# Главное правило! Без него masquerade НЕ работает для tun0:
-nft add rule inet fw4 srcnat oifname "tun0" jump srcnat_wan
-# Masquerade:
-nft insert rule inet fw4 srcnat_wan iifname "br-lan" oifname "tun0" meta nfproto ipv4 masquerade
-# Forward:
-nft insert rule inet fw4 forward_lan oifname "tun0" counter accept
-```
-
-Без `srcnat → srcnat_wan` jump: роутер сам ходит через VPN, пакеты клиентов доходят до tun0, но source IP не NAT-ится (192.168.11.x вместо 10.8.0.x) → ответы не возвращаются.
-
-**Автоматизация** — в `/etc/openvpn/altair.ovpn`:
-```
-script-security 2
-up /etc/openvpn/up.sh
-```
-
-`/etc/openvpn/up.sh`:
-```bash
-#!/bin/sh
-sleep 2
-nft add rule inet fw4 srcnat oifname "tun0" jump srcnat_wan 2>/dev/null
-nft insert rule inet fw4 forward_lan oifname "tun0" counter accept 2>/dev/null
-logger -t openvpn 'tun0 firewall rules applied'
-```
-
-### 7. LTE defaultroute
-
-```bash
-uci set network.lte.defaultroute='0'
-uci commit network
-```
-
-Если defaultroute=1 — LTE добавит `default via wwan0` который перебьёт VPN routes. С defaultroute=0 — OVPN управляет default route через `0.0.0.0/1` + `128.0.0.0/1`.
-
-### 8. WireGuard (альтернатива OVPN)
-
-```bash
-uci set network.wg0_peer.route_allowed_ips='1'  # default через WG
-uci commit network
+# WireGuard:
 ifup wg0
+wg show wg0
+ip route | grep wg0
+
+# OpenVPN:
+openvpn --config /etc/openvpn/sirius.ovpn --daemon
+ip addr show tun0 | grep inet
+
+# Проверка:
+curl -s ifconfig.me   # IP VPN сервера
 ```
 
 WG и OVPN нельзя запускать одновременно с default route — только один.
 
-### 9. Buzzer
+### 6. Firewall для VPN
 ```bash
-# НЕ отправлять {0x41} — включает buzzer!
-# Buzzer ON:  pic_i2c_cmd 0x34 0x00 0x03 (после 0x41 init)
-# Buzzer OFF: pic_i2c_cmd 0x34 0x00 0x00
-# lcd_drv НЕ включает buzzer (palmbus калибровка безопасна)
+# tun0 (OpenVPN) должен быть в wan zone:
+uci show firewall | grep vpn
+# network vpn = tun0, proto none
 ```
 
-### 10. Modem GPIO Reset
+WG hotplug (`/etc/hotplug.d/iface/90-wg-route`) автоматически добавляет route после handshake.
+
+### 7. Battery (PIC16LF1509)
 ```bash
-# НЕ ИСПОЛЬЗОВАТЬ echo 0 > /sys/class/gpio/modem_reset/value
-# Это убивает модем, возврат только через power cycle роутера!
+dmesg | grep "PIC bat:"
+cat /tmp/lcd_data.json | grep battery
+# {"adc": 810, "percent": 64, "charging": true, "valid": true}
 ```
 
-## Конфигурационные файлы
+### 8. GPIOMODE (критично!)
+```bash
+devmem 0x1E000060
+# Должно быть 0x00048580 (bit2=0 = SM0 → I2C пины)
+# Если bit2=1 — PIC и SX8650 touch не работают!
+```
 
-| Файл | Содержимое |
-|------|-----------|
-| /etc/config/network | LAN, LTE (QMI), WG |
-| /etc/config/wireless | WiFi AP 2.4+5GHz |
-| /etc/config/firewall | Zones, forwarding, masquerade |
-| /etc/openvpn/altair.ovpn | OpenVPN client config |
-| /etc/init.d/openvpn-altair | OVPN autostart script |
+### 9. LCD UI процессы
+```bash
+ps w | grep -E "lcd_render|data_col|touch_poll|ucode"
+# Ожидание: 4 процесса (lcd_render, data_collector, touch_poll, ucode lcd_ui.uc)
+```
+
+## Настройка
+
+```bash
+# С Mac — одной командой:
+./install_to_router.sh              # полная настройка + VPN ключи
+./install_to_router.sh --public     # без приватных ключей
+
+# Или вручную:
+scp first_setup.sh root@192.168.11.1:/tmp/
+ssh root@192.168.11.1 'sh /tmp/first_setup.sh --all'
+```
 
 ## Типичные проблемы
 
 | Симптом | Причина | Решение |
 |---------|---------|---------|
-| WiFi клиенты без интернета | tun0 не в firewall | nft insert masquerade для tun0 |
-| LTE disconnected долго | SIM illegal state | AT+CFUN=1,1, killall uqmi, ifup lte |
-| Buzzer пищит | Отправлен {0x41} | Power cycle (только так) |
-| Модем пропал | GPIO reset | Power cycle роутера |
+| WiFi клиенты без интернета через VPN | tun0 не в firewall | `first_setup.sh --setup_vpn` |
+| Модем пропал | Нужен GPIO reset | `sh /etc/lcd/scripts/lte_reset.sh` |
+| Buzzer пищит | Отправлен cmd 0x41 | Power cycle (только так) |
+| LAN не работает | gpio_request на bank0 | Проверить DTS: ethphy0 delete interrupts |
+| Battery valid:false | SSPOV в PIC | Cmd 0x39 перед каждым read (lcd_drv делает автоматически) |
+| Touch не реагирует | touch_start не отправлен | `echo -n "touch_start" > /dev/lcd` |
 | WG 0 received | Routing loop или сервер down | Проверить endpoint route через wwan0 |

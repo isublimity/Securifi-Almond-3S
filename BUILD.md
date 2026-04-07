@@ -1,130 +1,109 @@
-# Сборка Securifi Almond 3S — модули LCD/UI/Battery
+# Сборка Securifi Almond 3S
 
-## Требования
-
-### Build server (Linux x86_64):
-- OpenWrt SDK: клонировать `https://github.com/isublimity/openwrt_almond.git` ветка `almond-3s`
-- Собрать toolchain: `make toolchain/install`
-- Собрать kernel: `make target/linux/compile`
-
-### Рабочая станция (Mac/Linux):
-- [Zig](https://ziglang.org/) для кросс-компиляции userspace
-- SSH доступ к build server и роутеру
-
-## Структура файлов
+## Структура
 
 ```
 modules/
 ├── lcd_drv.c          # Kernel module (LCD + Touch + PIC Battery)
-├── lcd_server.c       # Userspace: render + touch + socket server  
-├── data_collector.c   # Userspace: LTE/WiFi/VPN/Battery stats
+├── lcd_render.c       # Framebuffer renderer (unix socket)
+├── touch_poll.c       # Touch polling daemon
+├── data_collector.c   # LTE/WiFi/VPN/Battery stats
 ├── lcd_ui.uc          # UI скрипт (ucode)
-├── settings.lua       # UI конфигурация
-├── pic_calib.h        # PIC calibration tables
+├── pic_calib.h        # PIC melody data (calibration tables)
 ├── sm0_shared.h       # SM0 register definitions
-└── splash_4pda.h      # Boot splash data
+├── splash_4pda.h      # Boot splash data
+└── Makefile           # kbuild Makefile для lcd_drv.ko
 ```
 
-## Сборка
+## Способ 1: OpenWrt пакеты (рекомендуемый)
 
-### 1. Настройка
-```bash
-cp build_config.sh.example build_config.sh
-# Заполнить:
-#   BUILD_SERVER="user@your-server"
-#   ROUTER="root@192.168.11.1"
-```
+Прошивка собирается из [fildunsky/openwrt](https://github.com/fildunsky/openwrt), ветка `almond-25.12`, ядро 6.12.
 
-### 2. Kernel module (lcd_drv.ko)
-```bash
-./build.sh kernel
-```
-Собирается на build server через SSH. Требует OpenWrt kernel headers.
+Пакеты тянут исходники из [isublimity/Securifi-Almond-3S](https://github.com/isublimity/Securifi-Almond-3S) при сборке:
+- **kmod-lcd-gpio** — kernel module (lcd_drv.ko)
+- **lcd-ui** — userspace (lcd_render, data_collector, touch_poll, lcd_ui.uc, init.d)
 
-### 3. Userspace бинарники
-```bash
-./build.sh userspace
-```
-Собирается **локально** через `zig cc`. Статическая линковка, mipsel-linux-musleabi.
-
-### 4. Всё вместе
-```bash
-./build.sh all        # kernel + userspace
-./build.sh deploy     # деплой на роутер
-./build.sh firmware   # полная прошивка OpenWrt
-```
-
-## Ручная сборка (без build.sh)
-
-### Kernel module:
 ```bash
 # На build server:
-cd /path/to/openwrt_almond
-KDIR=build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/linux-6.12.74
-CROSS=staging_dir/toolchain-mipsel_24kc_gcc-14.3.0_musl/bin/mipsel-openwrt-linux-musl-
-
-cp modules/lcd_drv.c modules/pic_calib.h modules/sm0_shared.h modules/splash_4pda.h \
-   package/lcd-gpio/src/
-
-make -C $KDIR M=$(pwd)/package/lcd-gpio/src ARCH=mips CROSS_COMPILE=$CROSS modules
-# Результат: package/lcd-gpio/src/lcd_drv.ko
+cd /mnt/sata/var/openwrt/fildunsky_openwrt
+make menuconfig   # Включить: kmod-lcd-gpio, lcd-ui
+make -j$(nproc)
+# Результат: bin/targets/ramips/mt7621/openwrt-*-sysupgrade.bin
 ```
 
-### Userspace:
-```bash
-# Локально (Mac/Linux с zig):
-zig cc -target mipsel-linux-musleabi -Os -static -lpthread \
-    -o lcd_server modules/lcd_server.c
+## Способ 2: build.sh (быстрая итерация)
 
-zig cc -target mipsel-linux-musleabi -Os -static \
-    -o data_collector modules/data_collector.c
+Для разработки — собирает только изменённые компоненты без полной прошивки.
+
+### Настройка
+```bash
+cp build_config.sh.example build_config.sh
+# BUILD_SERVER="user@build-server"
+# ROUTER="root@192.168.11.1"
+```
+
+### Команды
+```bash
+./build.sh kernel      # lcd_drv.ko через build server (GCC 14.3, kernel 6.12.74)
+./build.sh userspace   # lcd_render, touch_poll, data_collector через zig cc
+./build.sh all         # kernel + userspace
+./build.sh deploy      # scp на роутер + restart
+./build.sh firmware    # полная сборка прошивки на build server
+```
+
+### Kernel module
+Собирается на build server через SSH:
+```bash
+scp modules/lcd_drv.c → build server
+make -C KDIR M=package/lcd-gpio/src modules
+scp lcd_drv.ko ← build server
+```
+
+### Userspace
+Собирается локально через `zig cc` (static, mipsel-linux-musleabi):
+```bash
+zig cc -target mipsel-linux-musleabi -Os -static -o lcd_render modules/lcd_render.c
+zig cc -target mipsel-linux-musleabi -Os -static -o data_collector modules/data_collector.c
+zig cc -target mipsel-linux-musleabi -Os -static -o touch_poll modules/touch_poll.c
 ```
 
 ## Деплой
 
 ```bash
-# Бинарники:
-scp lcd_server data_collector root@192.168.11.1:/usr/bin/
-scp modules/lcd_ui.uc root@192.168.11.1:/usr/bin/
-scp modules/settings.lua root@192.168.11.1:/etc/lcd/
-
-# Kernel module:
-KVER=$(ssh root@192.168.11.1 'uname -r')
-scp lcd_drv.ko root@192.168.11.1:/lib/modules/$KVER/
-
-# Перезагрузить модуль:
-ssh root@192.168.11.1 'rmmod lcd_drv; insmod /lib/modules/$(uname -r)/lcd_drv.ko'
+./build.sh deploy          # автоматически
+# Или:
+./install_to_router.sh     # настройка после прошивки (first_setup.sh)
 ```
 
-## Версионирование
+## Прошивка роутера
 
-Формат: **V{YY}{MM}{NN}** (год, месяц, номер сборки)
+### U-Boot WebPanel
+1. Зажать Reset + включить питание
+2. Открыть http://192.168.1.1 (PC IP: 192.168.1.3)
+3. Загрузить sysupgrade.bin
+4. Ждать ~10 мин → power cycle → ждать 11 мин (jffs2)
 
-При старте каждый модуль пишет в dmesg/stderr:
-```
-<module_name> V260401 by Sublimity — START
-```
-
-При обновлении версии — изменить `VERSION` / `LCD_DRV_VERSION` в:
-- `lcd_drv.c` (строка `#define LCD_DRV_VERSION`)
-- `lcd_server.c` (строка `#define VERSION`)
-- `data_collector.c` (строка `#define VERSION`)
-
-## Проверка
-
+### Из OpenWrt
 ```bash
-# Kernel module:
-dmesg | grep "lcd_drv.*Sublimity"
-# lcd_drv V260401 by Sublimity — START (fb=320x240, 153600 bytes)
+sysupgrade -n /tmp/openwrt-*-sysupgrade.bin
+```
 
-# Userspace:
-lcd_server 2>&1 | head -1
-# lcd_server V260401 by Sublimity — START
+## Пакеты в прошивке
 
-data_collector 2>&1 | head -1
-# data_collector V260401 by Sublimity — START
+| Категория | Пакеты |
+|-----------|--------|
+| LCD | kmod-lcd-gpio, lcd-ui |
+| LTE | kmod-usb-net-cdc-mbim, kmod-usb-acm, umbim, luci-proto-mbim |
+| VPN | kmod-wireguard, wireguard-tools, openvpn-openssl, kmod-tun, xl2tpd, kmod-l2tp, kmod-pppol2tp |
+| UI | luci-ssl, luci-i18n-base-ru, ucode, ucode-mod-fs/ubus/uci/uloop/socket/io |
+| Utils | opkg, nano, curl |
 
-# Battery:
-cat /tmp/lcd_data.json | grep battery
-# "battery":{"adc":810,"percent":64,"charging":true,"valid":true}
+## DTS — критические настройки
+
+```dts
+&i2c { status = "okay"; };
+&ethphy0 { /delete-property/ interrupts; };  /* КРИТИЧНО для LAN! */
+&state_default {
+    lcd_jtag { groups = "jtag"; function = "gpio"; };
+};
 ```

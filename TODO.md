@@ -18,10 +18,11 @@
 - [x] data_collector: direct C serial I/O, auto-detect AT port (ACM0-2)
 - [x] data_collector: CESQ (RSRP/RSRQ), XCCINFO (Band/PCI), VPN type detection
 - [x] PID lock (data_collector + lcd_ui.uc — без дубликатов)
+- [x] Индикация батареи на dashboard (cmd 0x39 + 0x36 → live ADC)
 - [ ] SMS чтение (AT+CMGL через Fibocom)
 - [ ] Баланс SIM (USSD)
 - [ ] Buzzer при нажатии кнопок
-- [ ] Индикация батареи на dashboard (требует решение live ADC)
+- [ ] Оставшееся время работы от батареи (Battery_Drain_ALGO.md)
 
 ## LTE модем (Fibocom L860-GL)
 
@@ -47,33 +48,23 @@
 - [x] Hotplug 90-wg-route: route только после handshake
 - [x] Firewall: tun0 в wan zone (masquerade для OpenVPN)
 - [x] UI: 4 кнопки выбора VPN + VPN OFF
-- [ ] Xray/sing-box: не установлен (нет в прошивке)
 
 ## PIC16LF1509 Battery
 
-### Статус: ПРОШИВКА ПОЛНОСТЬЮ ПРОАНАЛИЗИРОВАНА, live ADC не работает
-
-**Прорыв 2026-03-24**: PIC firmware дампнута (PICkit 3, CP=OFF), полный дизассемблер анализ.
+### Статус: РЕШЕНО (7 апреля 2026)
 
 - [x] PIC firmware dumped via PICkit 3 + MPLAB IPE v6.05
 - [x] Full firmware analysis (30+ functions, 14 I2C commands, all RAM vars)
-- [x] Cmd 0x36 = ONLY way to get live ADC (reads AN11 channel)
-- [x] Cmd 0x37 = firmware version (returns 0x07)
+- [x] Cmd 0x39 (SSP REINIT) → cmd 0x36 (ADC READ) → read 6 bytes — РАБОТАЕТ
+- [x] ADC 10-bit: (buf[1]<<2)|(buf[2]>>6), валидация buf[3]==0x02 && buf[4]==0x04
+- [x] Charger detection: buf[5] (0x00=нет, 0x01=подключена)
 - [x] Calibration tables (pic_calib.h) = MELODY DATA, not battery!
 - [x] LED control: cmd 0x32=ON, 0x31=OFF, 0x30=BLINK (tested!)
-- [x] GPIO mapping confirmed (PORTE.0/3/4/5, PORTA.0/1, PORTC.0, AN11)
-- [x] Buzzer mystery solved (ISR PORTE.5 LOW auto-play, not I2C cmd)
-- [x] SM0CTL0 difference found (stock: 0x8064800E vs ours: 0x01F3800F)
-- [x] RSTCTRL I2C reset safe for MT7530 LAN
-- [x] Separate pic_battery.ko module — failed (SM0 sharing too fragile)
-- [x] i2c-mt7621.c analyzed (same NEW SM0 regs, iowrite32 vs __raw_writel)
-- [x] OLD SM0 auto read = dead end (SM0_CFG read-only on eco:3)
-- [ ] **TEST**: cmd 0x36 write + NEW SM0 read 3 bytes (live ADC)
-- [ ] **TEST**: cmd 0x37 read = 0x07 (verify read with cmd_state != 0)
-- [ ] **TEST**: SM0CTL0=0x8064800E (stock) + cmd 0x36 cycle
-- [ ] **FALLBACK**: GPIO bit-bang I2C with clock stretching support
-- [ ] Убрать pic_calib.h из lcd_drv init (или пометить как melody data)
-- [ ] Заменить {0x2F, 0, 2} на {0x36} в polling
+- [x] Buzzer mystery solved (ISR PORTE.5 LOW auto-play, Timer1 PORTC toggle)
+- [x] Периодическое чтение в kernel (touch thread, каждые ~10 сек)
+- [x] Battery drain test: 745→68 ADC за 4.13 часа (1203 точки)
+- [ ] Оставшееся время от батареи (linreg + lookup table, см. Battery_Drain_ALGO.md)
+- [ ] Buzzer через I2C (multi-byte SM0 write сломан — только 1-byte работает)
 
 ## Прошивка
 
@@ -82,13 +73,9 @@
 - [x] DTS: `&ethphy0 { /delete-property/ interrupts; }` — критично для LAN
 - [x] kmod-lcd-gpio: AutoLoad,90
 - [x] GCC 14.3 (совпадает с ядром)
-- [ ] Добавить sing-box/xray в сборку
-- [ ] opkg не установлен (нужен для runtime пакетов)
-
-## U-Boot
-
-### Статус: ИССЛЕДОВАНИЕ (ВЫСОКИЙ РИСК)
-
-- [ ] USB Recovery
-- [ ] LCD в U-Boot
-- Нужен CH341A + SOIC8 для восстановления
+- [x] opkg в сборке
+- [x] VPN пакеты: WireGuard, OpenVPN, L2TP (xl2tpd)
+- [x] OpenWrt package: lcd-gpio (kernel) + lcd-ui (userspace)
+- [x] first_setup.sh + install_to_router.sh (единый скрипт, без дублей)
+- [ ] lcd-ui пакет тянет исходники из GitHub при сборке
+- [ ] Обновить fildunsky_openwrt до свежего upstream (elfutils патчи несовместимы)

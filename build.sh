@@ -1,13 +1,6 @@
 #!/bin/bash
 #
-# build.sh — Сборка модулей и утилит для Securifi Almond 3S
-#
-# Компоненты:
-#   lcd_drv.ko      — kernel module (LCD + touch + PIC battery)
-#   lcd_render      — JSON socket renderer (framebuffer)
-#   touch_poll      — touch polling + backlight control
-#   data_collector  — LTE/WiFi/VPN/Battery stats collector
-#   lcd_ui.uc       — UI скрипт (ucode)
+# build.sh — Сборка модулей для Securifi Almond 3S
 #
 # Использование:
 #   ./build.sh              — собрать всё (kernel + userspace)
@@ -44,7 +37,8 @@ build_kernel() {
     local SRC="$FILD_DIR/package/lcd-gpio/src"
 
     scp -O "$MODULES_DIR/lcd_drv.c" "$MODULES_DIR/splash_4pda.h" \
-           "$MODULES_DIR/pic_calib.h" "$MODULES_DIR/Makefile" \
+           "$MODULES_DIR/pic_calib.h" "$MODULES_DIR/sm0_shared.h" \
+           "$MODULES_DIR/Makefile" \
         "$BUILD_SERVER:$SRC/"
 
     ssh "$BUILD_SERVER" "cd $FILD_DIR && \
@@ -59,19 +53,16 @@ build_userspace() {
     echo "=== Сборка userspace (zig cc, mipsel-musleabi) ==="
     local ZIG="zig cc -target mipsel-linux-musleabi -Os -static"
 
-    $ZIG -o "$OUT_DIR/lcd_server" "$MODULES_DIR/lcd_server.c" -lpthread
-    echo ">>> lcd_server"
+    $ZIG -o "$OUT_DIR/lcd_render" "$MODULES_DIR/lcd_render.c"
+    echo ">>> lcd_render"
 
     $ZIG -o "$OUT_DIR/data_collector" "$MODULES_DIR/data_collector.c"
     echo ">>> data_collector"
 
-    $ZIG -o "$OUT_DIR/lcd_render" "$MODULES_DIR/lcd_render.c"
-    echo ">>> lcd_render"
-
     $ZIG -o "$OUT_DIR/touch_poll" "$MODULES_DIR/touch_poll.c"
     echo ">>> touch_poll"
 
-    ls -la "$OUT_DIR/lcd_server" "$OUT_DIR/lcd_render" "$OUT_DIR/data_collector" "$OUT_DIR/touch_poll"
+    ls -la "$OUT_DIR/lcd_render" "$OUT_DIR/data_collector" "$OUT_DIR/touch_poll"
 }
 
 # === Deploy ===
@@ -82,14 +73,11 @@ deploy() {
 
     scp -O "$OUT_DIR/lcd_render" "$OUT_DIR/touch_poll" "$OUT_DIR/data_collector" "$ROUTER:/usr/bin/"
     scp -O "$MODULES_DIR/lcd_ui.uc" "$ROUTER:/usr/bin/"
-    scp -O "$MODULES_DIR/settings.lua" "$ROUTER:/etc/lcd/settings.lua" 2>/dev/null || {
-        ssh "$ROUTER" "mkdir -p /etc/lcd"
-        scp -O "$MODULES_DIR/settings.lua" "$ROUTER:/etc/lcd/settings.lua"
-    }
-    scp -O "$SCRIPT_DIR/scripts/lcd/"*.sh "$SCRIPT_DIR/scripts/lcd/"*.init "$ROUTER:/etc/lcd/scripts/" 2>/dev/null || true
 
     if [ -f "$OUT_DIR/lcd_drv.ko" ]; then
-        scp -O "$OUT_DIR/lcd_drv.ko" "$ROUTER:/lib/modules/\$(ssh $ROUTER 'uname -r')/lcd_drv.ko"
+        local KVER
+        KVER=$(ssh "$ROUTER" 'uname -r')
+        scp -O "$OUT_DIR/lcd_drv.ko" "$ROUTER:/lib/modules/$KVER/lcd_drv.ko"
     fi
 
     ssh "$ROUTER" "chmod +x /usr/bin/lcd_render /usr/bin/touch_poll /usr/bin/data_collector /usr/bin/lcd_ui.uc 2>/dev/null"
