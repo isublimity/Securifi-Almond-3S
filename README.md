@@ -83,7 +83,7 @@ cp build_config.sh.example build_config.sh
 ./build.sh deploy      # scp to router
 ```
 
-See [BUILD.md](BUILD.md) for details.
+See [docs/BUILD.md](docs/BUILD.md) for details.
 
 ## Setup after flashing
 
@@ -92,7 +92,7 @@ See [BUILD.md](BUILD.md) for details.
 ./install_to_router.sh --public     # without private keys
 ```
 
-See [FIRST_CHECK_SETUP.md](FIRST_CHECK_SETUP.md) for verification checklist.
+See [docs/FIRST_CHECK_SETUP.md](docs/FIRST_CHECK_SETUP.md) for verification checklist.
 
 ## /dev/lcd Interface
 
@@ -127,18 +127,20 @@ See [Battery_Drain/](Battery_Drain/) for discharge analysis and remaining time e
 
 ## Documentation
 
-- [BUILD.md](BUILD.md) — Build system
-- [GUIDE_SETUP_ON_OPENWRT.md](GUIDE_SETUP_ON_OPENWRT.md) — Full setup guide
-- [LCD.md](LCD.md) — ILI9341 display driver
-- [TOUCH.md](TOUCH.md) — SX8650 touchscreen
-- [Fibocom_Setup.md](Fibocom_Setup.md) — LTE modem
+- [docs/BUILD.md](docs/BUILD.md) — Build system
+- [docs/GUIDE_SETUP_ON_OPENWRT.md](docs/GUIDE_SETUP_ON_OPENWRT.md) — Full setup guide
+- [docs/LCD.md](docs/LCD.md) — ILI9341 display driver
+- [docs/TOUCH.md](docs/TOUCH.md) — SX8650 touchscreen
+- [docs/Fibocom_Setup.md](docs/Fibocom_Setup.md) — LTE modem
 - [Battery_Drain/Battery_Drain_ALGO.md](Battery_Drain/Battery_Drain_ALGO.md) — Battery algorithm
+- [docs/ideas/PIC_FIRMWARE_ANALYSIS.md](docs/ideas/PIC_FIRMWARE_ANALYSIS.md) — PIC16 firmware reverse engineering
+- [docs/ideas/pic_firmware.hex](docs/ideas/pic_firmware.hex) — PIC16 firmware dump (Intel HEX)
 
 ## Credits
 
 - OpenWrt base: [fildunsky/openwrt](https://github.com/fildunsky/openwrt)
 - Display/touch protocol reverse engineered from stock firmware (kernel 3.10.14)
-- PIC16 firmware dumped and analyzed via PICkit 3
+- PIC16 firmware dumped and analyzed via [PICkit 3](docs/ideas/TODO_PICkit.md)
 - Community: [4PDA forum](https://4pda.to/forum/index.php?showtopic=1116429)
 
 ## License
