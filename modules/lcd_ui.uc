@@ -430,6 +430,7 @@ function draw_header(title, bg_c) {
         let bpct = int(+(bat?.percent ?? 0));
         let bchg = bat?.charging;
         let bvalid = bat?.valid;
+        let bno = bat?.no_battery;
         let bat_x = 188;
         let bat_bg = "#000000";
 
@@ -438,6 +439,7 @@ function draw_header(title, bg_c) {
 
         // Color
         let bat_color = !bvalid ? C.gray :
+            bno ? C.gray :
             bchg ? C.cyan :
             bpct > 20 ? C.green :
             bpct > 5 ? C.yellow : C.red;
@@ -447,17 +449,34 @@ function draw_header(title, bg_c) {
         lcd_rect(bat_x + 14, 7, 2, 4, "#666666");
         lcd_rect(bat_x + 1, 5, 12, 8, bat_bg);
 
-        // Fill
-        let fill_w = bvalid ? int(bpct * 12 / 100) : 0;
-        if (fill_w > 0)
-            lcd_rect(bat_x + 1, 5, fill_w, 8, bat_color);
+        // Fill (no fill when no battery)
+        if (!bno) {
+            let fill_w = bvalid ? int(bpct * 12 / 100) : 0;
+            if (fill_w > 0)
+                lcd_rect(bat_x + 1, 5, fill_w, 8, bat_color);
+        }
 
         // Charging "+"
-        if (bchg)
+        if (bchg && !bno)
             lcd_text(bat_x + 4, 2, "+", C.cyan, bat_bg, 1);
 
         // Text
-        lcd_text(bat_x + 18, 2, bvalid ? bpct + "%" : "?", bat_color, bat_bg, 2);
+        let bat_txt;
+        if (bno) {
+            bat_txt = "NO BAT";
+        } else if (!bvalid) {
+            bat_txt = "?";
+        } else {
+            bat_txt = bpct + "%";
+            let remain = bat?.remain_min;
+            if (remain != null && remain >= 0 && !bchg) {
+                if (remain >= 60)
+                    bat_txt += " ~" + int(remain / 60) + "h" + sprintf("%02d", remain % 60);
+                else
+                    bat_txt += " ~" + remain + "m";
+            }
+        }
+        lcd_text(bat_x + 18, 2, bat_txt, bat_color, bat_bg, 2);
     }
 
     lcd_text(LCD_W - 60, 2, clock_str(), C.cyan, bg_c, 2);

@@ -40,29 +40,180 @@ static void sig_handler(int sig) { (void)sig; running = 0; }
 
 /* ======== PIC Battery ======== */
 struct battery_info {
-    int adc, percent, charging, valid;
+    int adc, percent, charging, valid, no_battery;
 };
 
 static void get_battery(struct battery_info *bi) {
     unsigned char raw[17] = {0};
-    bi->adc = 0; bi->percent = 0; bi->charging = 0; bi->valid = 0;
+    bi->adc = 0; bi->percent = 0; bi->charging = 0; bi->valid = 0; bi->no_battery = 0;
     int fd = open("/dev/lcd", O_RDWR);
     if (fd < 0) return;
     int ret = ioctl(fd, 2, raw);
-    fprintf(stderr, MODNAME ": bat ioctl=%d raw=%02x %02x %02x %02x %02x %02x\n",
-            ret, raw[0], raw[1], raw[2], raw[3], raw[4], raw[5]);
     if (ret == 0 && raw[3] == 0x02 && raw[4] == 0x04) {
         bi->adc = (raw[1] << 2) | (raw[2] >> 6);
         bi->charging = (raw[5] & 0x01) ? 1 : 0;
+        bi->no_battery = (raw[5] & 0x60) ? 1 : 0;  /* bit5+bit6 = no battery */
         bi->valid = 1;
         if (bi->adc < 401) bi->percent = 0;
         else if (bi->adc < 542) bi->percent = (bi->adc - 401) * 20 / 141;
-        else bi->percent = 20 + (bi->adc - 542) * 80 / 481;
+        else bi->percent = 20 + (bi->adc - 542) * 80 / 208;  /* 750 = full charge ADC */
         if (bi->percent > 100) bi->percent = 100;
-        fprintf(stderr, MODNAME ": bat ADC=%d pct=%d chg=%d\n",
-                bi->adc, bi->percent, bi->charging);
     }
     close(fd);
+}
+
+/* ======== Battery Time Estimation ======== */
+#define BAT_HIST_MAX 30
+#define BAT_CAL_PATH "/etc/lcd/bat_cal"
+
+struct bat_sample { time_t t; int adc; };
+
+struct bat_estimator {
+    struct bat_sample hist[BAT_HIST_MAX];
+    int count, head;
+    int remain_min;     /* -1=unknown, 0=dead, >0=minutes */
+    int drain_rate;     /* ADC/min * 100 (fixed-point) */
+    int was_charging;
+};
+
+static struct bat_estimator bat_est = {0};
+
+static int bat_cal_cutoff = 400;
+static int bat_cal_factor = 100;    /* *100 fixed-point (100 = 1.0x) */
+static int bat_cal_hist_size = 20;
+static int bat_cal_interval = 30;   /* seconds between samples */
+
+static void bat_cal_load(void) {
+    FILE *fp = fopen(BAT_CAL_PATH, "r");
+    if (!fp) return;
+    char line[64];
+    while (fgets(line, sizeof(line), fp)) {
+        if (line[0] == '#' || line[0] == '\n') continue;
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = 0;
+        int val = atoi(eq + 1);
+        if (strcmp(line, "cutoff_adc") == 0)   bat_cal_cutoff = val;
+        else if (strcmp(line, "time_factor") == 0)  bat_cal_factor = val;
+        else if (strcmp(line, "hist_size") == 0)    { bat_cal_hist_size = val; if (val > BAT_HIST_MAX) bat_cal_hist_size = BAT_HIST_MAX; }
+        else if (strcmp(line, "min_interval") == 0) bat_cal_interval = val;
+    }
+    fclose(fp);
+}
+
+static void bat_hist_clear(struct bat_estimator *e) { e->count = 0; e->head = 0; }
+
+static void bat_hist_push(struct bat_estimator *e, time_t t, int adc) {
+    e->hist[e->head].t = t;
+    e->hist[e->head].adc = adc;
+    e->head = (e->head + 1) % bat_cal_hist_size;
+    if (e->count < bat_cal_hist_size) e->count++;
+}
+
+/* Lookup table: ADC → minutes to ADC=400 (smoothed, from discharge test) */
+static const struct { int adc; int min; } bat_table[] = {
+    {750, 152}, {725, 145}, {700, 130}, {675, 116}, {650, 109},
+    {625, 100}, {600,  88}, {575,  68}, {550,  56}, {525,  43},
+    {500,  37}, {475,  29}, {450,  22}, {425,  12}, {400,   0},
+};
+#define BAT_TABLE_SIZE 15
+
+static int bat_table_lookup(int adc) {
+    if (adc >= 750) return 152;
+    if (adc <= 400) return 0;
+    for (int i = 0; i < BAT_TABLE_SIZE - 1; i++) {
+        if (adc >= bat_table[i + 1].adc) {
+            int da = bat_table[i].adc - bat_table[i + 1].adc;
+            int dm = bat_table[i].min - bat_table[i + 1].min;
+            return bat_table[i + 1].min + (adc - bat_table[i + 1].adc) * dm / da;
+        }
+    }
+    return 0;
+}
+
+static int bat_table_rate_x100(int adc) {
+    int hi = adc + 15 > 750 ? 750 : adc + 15;
+    int lo = adc - 15 < 400 ? 400 : adc - 15;
+    int t1 = bat_table_lookup(hi);
+    int t2 = bat_table_lookup(lo);
+    int dt = t1 - t2;
+    if (dt <= 0) return 250;
+    return 3000 / dt;   /* 30*100 / dt */
+}
+
+static void bat_calc_slope(struct bat_estimator *e, int *slope_x1000) {
+    int n = e->count;
+    int oldest = (e->head - n + bat_cal_hist_size) % bat_cal_hist_size;
+    long long t0 = (long long)e->hist[oldest].t;
+    long long sum_t = 0, sum_a = 0, sum_tt = 0, sum_ta = 0;
+    for (int i = 0; i < n; i++) {
+        int idx = (oldest + i) % bat_cal_hist_size;
+        long long t = (long long)e->hist[idx].t - t0;
+        long long a = (long long)e->hist[idx].adc;
+        sum_t += t; sum_a += a; sum_tt += t * t; sum_ta += t * a;
+    }
+    long long denom = (long long)n * sum_tt - sum_t * sum_t;
+    if (denom == 0) { *slope_x1000 = 0; return; }
+    long long numer = (long long)n * sum_ta - sum_t * sum_a;
+    *slope_x1000 = (int)(numer * 1000 / denom);
+}
+
+static void bat_estimate(struct bat_estimator *e, int cur_adc) {
+    int tab_min = bat_table_lookup(cur_adc);
+
+    if (e->count < 3) {
+        e->remain_min = tab_min;
+        e->drain_rate = 0;
+        return;
+    }
+
+    int slope_x1000;
+    bat_calc_slope(e, &slope_x1000);
+
+    if (slope_x1000 >= 0) {
+        e->remain_min = -1;
+        e->drain_rate = 0;
+        return;
+    }
+
+    int drain_rate_x100 = (int)(-(long long)slope_x1000 * 60 / 10);
+    e->drain_rate = drain_rate_x100;
+
+    int tab_rate_x100 = bat_table_rate_x100(cur_adc);
+    int correction_x100 = (int)((long long)tab_rate_x100 * 100 / drain_rate_x100);
+    if (correction_x100 < 30) correction_x100 = 30;
+    if (correction_x100 > 300) correction_x100 = 300;
+
+    e->remain_min = (int)((long long)tab_min * correction_x100 * bat_cal_factor / 10000);
+    if (e->remain_min < 0) e->remain_min = 0;
+}
+
+static void bat_update(struct bat_estimator *e, struct battery_info *bi) {
+    if (!bi->valid) { e->remain_min = -1; return; }
+
+    if (bi->charging) {
+        e->was_charging = 1;
+        bat_hist_clear(e);
+        e->remain_min = -1;
+        e->drain_rate = 0;
+        return;
+    }
+    if (e->was_charging) {
+        bat_hist_clear(e);
+        e->was_charging = 0;
+    }
+
+    if (bi->adc < 100) { e->remain_min = 0; return; }
+
+    time_t now = time(NULL);
+    if (e->count > 0) {
+        int last = (e->head - 1 + bat_cal_hist_size) % bat_cal_hist_size;
+        if ((now - e->hist[last].t) < bat_cal_interval)
+            goto calc;
+    }
+    bat_hist_push(e, now, bi->adc);
+calc:
+    bat_estimate(e, bi->adc);
 }
 
 /* ======== Shell helpers ======== */
@@ -283,6 +434,8 @@ int main(void) {
 
     fprintf(stderr, MODNAME ": socket %s ready\n", SOCK_PATH);
 
+    bat_cal_load();
+
     while (running) {
         struct lte_info li;
         int vpn_active=0, vpn_ping=0;
@@ -301,6 +454,7 @@ int main(void) {
         sysinfo(&si);
         run_cmd("ip -4 addr show wwan0 2>/dev/null | grep inet | awk '{print $2}' | cut -d/ -f1", lte_ip, sizeof(lte_ip));
         get_battery(&bat);
+        bat_update(&bat_est, &bat);
         run_cmd("ping -c1 -W2 8.8.8.8 2>/dev/null | grep 'time=' | sed 's/.*time=//;s/ .*//'", ping_buf, sizeof(ping_buf));
         google_ping = (ping_buf[0] && atof(ping_buf)>0) ? (int)atof(ping_buf) : -1;
 
@@ -313,7 +467,8 @@ int main(void) {
             "\"vpn\":{\"active\":%s,\"type\":\"%s\",\"ping_ms\":%d,\"external_ip\":\"%s\"},"
             "\"wifi\":{\"clients\":%s},"
             "\"ping\":{\"google_ms\":%d},"
-            "\"battery\":{\"adc\":%d,\"percent\":%d,\"charging\":%s,\"valid\":%s},"
+            "\"battery\":{\"adc\":%d,\"percent\":%d,\"charging\":%s,\"valid\":%s,"
+            "\"no_battery\":%s,\"remain_min\":%d,\"drain_rate\":%d.%d},"
             "\"uptime\":%ld,\"mem_free_mb\":%ld,\"cpu_load\":%.2f}\n",
             (long)time(NULL),
             li.csq,li.ber,li.rsrp,li.rsrq,li.sinr,li.rssi,li.pci,
@@ -321,6 +476,8 @@ int main(void) {
             vpn_active?"true":"false",vpn_type,vpn_ping,ext_ip,
             wifi_json, google_ping,
             bat.adc,bat.percent,bat.charging?"true":"false",bat.valid?"true":"false",
+            bat.no_battery?"true":"false",
+            bat_est.remain_min, bat_est.drain_rate/100, abs(bat_est.drain_rate)%100,
             si.uptime, si.freeram/1024/1024, si.loads[0]/65536.0);
 
         /* Push to socket clients */
