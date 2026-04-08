@@ -22,7 +22,9 @@
 - [ ] SMS чтение (AT+CMGL через Fibocom)
 - [ ] Баланс SIM (USSD)
 - [ ] Buzzer при нажатии кнопок
-- [ ] Оставшееся время работы от батареи (Battery_Drain_ALGO.md)
+- [x] Оставшееся время работы от батареи (lookup table + linreg, int64)
+- [x] NO BAT детекция (buf[5] bit5+bit6)
+- [x] Процент исправлен (max ADC=750, было 1023)
 
 ## LTE модем (Fibocom L860-GL)
 
@@ -57,13 +59,16 @@
 - [x] Full firmware analysis (30+ functions, 14 I2C commands, all RAM vars)
 - [x] Cmd 0x39 (SSP REINIT) → cmd 0x36 (ADC READ) → read 6 bytes — РАБОТАЕТ
 - [x] ADC 10-bit: (buf[1]<<2)|(buf[2]>>6), валидация buf[3]==0x02 && buf[4]==0x04
-- [x] Charger detection: buf[5] (0x00=нет, 0x01=подключена)
+- [x] Charger detection: buf[5] bit0 (0x00=нет, 0x01/0x09=да)
+- [x] No-battery detection: buf[5] bit5+bit6 (0x60 mask)
 - [x] Calibration tables (pic_calib.h) = MELODY DATA, not battery!
 - [x] LED control: cmd 0x32=ON, 0x31=OFF, 0x30=BLINK (tested!)
 - [x] Buzzer mystery solved (ISR PORTE.5 LOW auto-play, Timer1 PORTC toggle)
 - [x] Периодическое чтение в kernel (touch thread, каждые ~10 сек)
-- [x] Battery drain test: 745→68 ADC за 4.13 часа (1203 точки)
-- [ ] Оставшееся время от батареи (linreg + lookup table, см. Battery_Drain_ALGO.md)
+- [x] Battery drain test: 745→68 ADC за 4.13 часа (1213 строк)
+- [x] Battery charge test: 499→802 ADC (788 строк)
+- [x] Оставшееся время (lookup table + linreg int64, Battery_Drain_ALGO.md)
+- [x] Процент исправлен: max ADC=750 (было 1023)
 - [ ] Buzzer через I2C (multi-byte SM0 write сломан — только 1-byte работает)
 
 ## Прошивка
@@ -77,5 +82,11 @@
 - [x] VPN пакеты: WireGuard, OpenVPN, L2TP (xl2tpd)
 - [x] OpenWrt package: lcd-gpio (kernel) + lcd-ui (userspace)
 - [x] first_setup.sh + install_to_router.sh (единый скрипт, без дублей)
+- [x] IRQ affinity исправлен: 30=USB, 33=WiFi2.4, 32=WiFi5
+- [x] GPIO reset pulse 3s→1s
+- [x] Прошивка собрана (11MB sysupgrade.bin, 8 апреля 2026)
+- [x] MTD backup (BACKUP/2026-04-08/)
 - [ ] lcd-ui пакет тянет исходники из GitHub при сборке
 - [ ] Обновить fildunsky_openwrt до свежего upstream (elfutils патчи несовместимы)
+- [ ] Перейти на стабилку 24.10.6 или 25.12.2 (snapshot протухает)
+- [ ] Рассмотреть NCM+xmm вместо MBIM (на случай обновления прошивки модема)
