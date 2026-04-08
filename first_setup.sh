@@ -39,9 +39,9 @@ setup_system() {
     grep -q "smp_affinity" /etc/rc.local || {
         sed -i '/^exit 0/i\
 # IRQ optimization\
-echo 2 > "/proc/irq/29/smp_affinity"   # USB -> Core1t2\
-echo 4 > "/proc/irq/31/smp_affinity"   # WiFi 2.4GHz -> Core2t1\
-echo 8 > "/proc/irq/32/smp_affinity"   # WiFi 5GHz -> Core2t2' /etc/rc.local
+echo 2 > "/proc/irq/30/smp_affinity"   # USB/xhci (LTE modem) -> Core1t2\
+echo 4 > "/proc/irq/33/smp_affinity"   # WiFi 2.4GHz (mt76x2e) -> Core2t1\
+echo 8 > "/proc/irq/32/smp_affinity"   # WiFi 5GHz (mt76x2e) -> Core2t2' /etc/rc.local
     }
 
     log "  hostname=Almond3S, LAN=192.168.11.1, TZ=MSK-3"
@@ -115,7 +115,7 @@ setup_lte() {
     ifdown lte 2>/dev/null
     sleep 2
     if [ -f "$MODEM_GPIO" ]; then
-        echo 1 > "$MODEM_GPIO"; sleep 3; echo 0 > "$MODEM_GPIO"
+        echo 1 > "$MODEM_GPIO"; sleep 1; echo 0 > "$MODEM_GPIO"
         log "  Waiting 15s for modem..."
         sleep 15
     fi
@@ -125,7 +125,7 @@ setup_lte() {
         umbim -n -d /dev/cdc-wdm0 caps >/dev/null 2>&1
         if [ $? -ne 0 ]; then
             log "  MBIM timeout, second reset..."
-            echo 1 > "$MODEM_GPIO"; sleep 3; echo 0 > "$MODEM_GPIO"
+            echo 1 > "$MODEM_GPIO"; sleep 1; echo 0 > "$MODEM_GPIO"
             sleep 15
         fi
     fi
@@ -247,10 +247,10 @@ MODEM_GPIO="/sys/devices/platform/1e000000.palmbus/1e000600.gpio/gpiochip1/gpio/
 ifdown lte 2>/dev/null
 sleep 2
 if [ -f "$MODEM_GPIO" ]; then
-    echo 1 > "$MODEM_GPIO"; sleep 3; echo 0 > "$MODEM_GPIO"; sleep 15
+    echo 1 > "$MODEM_GPIO"; sleep 1; echo 0 > "$MODEM_GPIO"; sleep 15
 fi
 if ! umbim -n -d /dev/cdc-wdm0 caps >/dev/null 2>&1; then
-    echo 1 > "$MODEM_GPIO" 2>/dev/null; sleep 3
+    echo 1 > "$MODEM_GPIO" 2>/dev/null; sleep 1
     echo 0 > "$MODEM_GPIO" 2>/dev/null; sleep 15
 fi
 ifup lte 2>/dev/null
