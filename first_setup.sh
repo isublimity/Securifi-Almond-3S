@@ -104,7 +104,7 @@ setup_lte() {
 
     # Remove conflicting interfaces
     for iface in $(uci show network 2>/dev/null | grep "device='/dev/cdc-wdm0'" | cut -d. -f2 | sort -u); do
-        [ "$iface" = "lte" ] && continue
+        [ "$iface" = "wwan" ] && continue
         log "  Removing conflicting interface '$iface'"
         uci delete "network.$iface"
     done
@@ -112,7 +112,7 @@ setup_lte() {
 
     # GPIO reset modem
     log "  GPIO reset modem..."
-    ifdown lte 2>/dev/null
+    ifdown wwan 2>/dev/null
     sleep 2
     if [ -f "$MODEM_GPIO" ]; then
         echo 1 > "$MODEM_GPIO"; sleep 1; echo 0 > "$MODEM_GPIO"
@@ -156,12 +156,12 @@ setup_lte() {
     fi
 
     # UCI
-    uci set network.lte=interface
-    uci set network.lte.proto='mbim'
-    uci set network.lte.device='/dev/cdc-wdm0'
-    uci set network.lte.apn='internet'
-    uci set network.lte.pdptype='ipv4'
-    uci set network.lte.metric='100'
+    uci set network.wwan=interface
+    uci set network.wwan.proto='mbim'
+    uci set network.wwan.device='/dev/cdc-wdm0'
+    uci set network.wwan.apn='internet'
+    uci set network.wwan.pdptype='ipv4'
+    uci set network.wwan.metric='100'
     uci commit network
 
     # Firewall: wan zone
@@ -169,20 +169,20 @@ setup_lte() {
     if [ -n "$WAN_ZONE" ]; then
         EXTRA=""
         for net in $(uci -q get "$WAN_ZONE.network"); do
-            case "$net" in wan|wan6|lte) continue ;; esac
+            case "$net" in wan|wan6|wwan) continue ;; esac
             uci -q get "network.$net" >/dev/null 2>&1 && EXTRA="$EXTRA $net"
         done
         uci -q delete "$WAN_ZONE.network"
         uci add_list "$WAN_ZONE.network=wan"
         uci add_list "$WAN_ZONE.network=wan6"
-        uci add_list "$WAN_ZONE.network=lte"
+        uci add_list "$WAN_ZONE.network=wwan"
         for net in $EXTRA; do
             uci add_list "$WAN_ZONE.network=$net"
         done
         uci commit firewall
     fi
 
-    ifup lte 2>/dev/null
+    ifup wwan 2>/dev/null
     sleep 8
     IP=$(ip -4 addr show wwan0 2>/dev/null | grep -o 'inet [0-9.]*' | awk '{print $2}')
     log "  LTE IP: ${IP:-not yet}"
@@ -244,7 +244,7 @@ EOF
     cat > "$SCRIPTS_DIR/lte_reset.sh" << 'EOF'
 #!/bin/sh
 MODEM_GPIO="/sys/devices/platform/1e000000.palmbus/1e000600.gpio/gpiochip1/gpio/modem_reset/value"
-ifdown lte 2>/dev/null
+ifdown wwan 2>/dev/null
 sleep 2
 if [ -f "$MODEM_GPIO" ]; then
     echo 1 > "$MODEM_GPIO"; sleep 1; echo 0 > "$MODEM_GPIO"; sleep 15
@@ -253,7 +253,7 @@ if ! umbim -n -d /dev/cdc-wdm0 caps >/dev/null 2>&1; then
     echo 1 > "$MODEM_GPIO" 2>/dev/null; sleep 1
     echo 0 > "$MODEM_GPIO" 2>/dev/null; sleep 15
 fi
-ifup lte 2>/dev/null
+ifup wwan 2>/dev/null
 EOF
 
     cat > "$SCRIPTS_DIR/reboot.sh" << 'EOF'
