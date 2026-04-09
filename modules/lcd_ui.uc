@@ -469,10 +469,10 @@ function draw_header(title, bg_c) {
         } else {
             bat_txt = bpct + "%";
             let remain = bat?.remain_min;
-            if (remain != null && remain >= 0 && !bchg) {
+            if (remain != null && remain >= 0) {
                 if (remain >= 60)
                     bat_txt += " ~" + int(remain / 60) + "h" + sprintf("%02d", remain % 60);
-                else
+                else if (remain > 0)
                     bat_txt += " ~" + remain + "m";
             }
         }
@@ -782,6 +782,15 @@ function draw_info_page() {
     y += 12;
     let gp = int(+(d?.ping?.google_ms ?? -1));
     lcd_text(4, y, gp < 0 ? "Google ping: FAIL" : sprintf("Google ping: %dms", gp), gp < 0 ? C.red : C.gray, C.bg, 1);
+    y += 12;
+
+    // Battery raw
+    let bat = d?.battery;
+    let braw = bat?.raw_hex ?? "??";
+    let badc = int(+(bat?.adc ?? 0));
+    let bpct = int(+(bat?.percent ?? 0));
+    lcd_text(4, y, sprintf("Bat: [%s] ADC=%d %d%%", braw, badc, bpct),
+        bat?.valid ? C.green : C.red, C.bg, 1);
     y += 14;
 
     // Board info from ubus
@@ -1049,10 +1058,25 @@ function draw_screensaver() {
     let y = 40 + ((st.saver_frame * 11) % (LCD_H - 100));
     lcd_text(x, y, ts, C.dim, C.bg, 4);
 
-    // Dim status line
+    // Status line: VPN + Battery + Traffic
     let d = st.data;
     let vpn = d?.vpn?.active;
     lcd_text(x, y + 40, vpn ? "VPN" : "---", vpn ? "#0320" : "#2000", C.bg, 2);
+
+    // Battery percent
+    let bat = d?.battery;
+    let bpct = int(+(bat?.percent ?? 0));
+    let bchg = bat?.charging;
+    let bno = bat?.no_battery;
+    let bat_str = bno ? "NO BAT" : (bat?.valid ? bpct + "%" + (bchg ? "+" : "") : "?");
+    let bat_c = bno ? "#2000" : (bchg ? "#0330" : (bpct > 20 ? "#0320" : "#3200"));
+    lcd_text(x + 60, y + 40, bat_str, bat_c, C.bg, 2);
+
+    // WWAN TX/RX
+    let rx_now = length(hist.rx) > 0 ? hist.rx[length(hist.rx) - 1] : 0;
+    let tx_now = length(hist.tx) > 0 ? hist.tx[length(hist.tx) - 1] : 0;
+    let traf_str = sprintf("R:%s T:%s", fmt_bytes(rx_now), fmt_bytes(tx_now));
+    lcd_text(x, y + 58, traf_str, "#1111", C.bg, 1);
 
     st.saver_frame++;
     lcd_flush();

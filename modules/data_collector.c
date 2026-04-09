@@ -41,22 +41,24 @@ static void sig_handler(int sig) { (void)sig; running = 0; }
 /* ======== PIC Battery ======== */
 struct battery_info {
     int adc, percent, charging, valid, no_battery;
+    unsigned char raw1, raw2;  /* buf[1], buf[2] for hex display */
 };
 
 static void get_battery(struct battery_info *bi) {
     unsigned char raw[17] = {0};
-    bi->adc = 0; bi->percent = 0; bi->charging = 0; bi->valid = 0; bi->no_battery = 0;
+    bi->adc = 0; bi->percent = 0; bi->charging = 0; bi->valid = 0; bi->no_battery = 0; bi->raw1 = 0; bi->raw2 = 0;
     int fd = open("/dev/lcd", O_RDWR);
     if (fd < 0) return;
     int ret = ioctl(fd, 2, raw);
     if (ret == 0 && raw[3] == 0x02 && raw[4] == 0x04) {
         bi->adc = (raw[1] << 2) | (raw[2] >> 6);
+        bi->raw1 = raw[1]; bi->raw2 = raw[2];
         bi->charging = (raw[5] & 0x01) ? 1 : 0;
         bi->no_battery = (raw[5] & 0x60) ? 1 : 0;  /* bit5+bit6 = no battery */
         bi->valid = 1;
         if (bi->adc < 401) bi->percent = 0;
-        else if (bi->adc < 542) bi->percent = (bi->adc - 401) * 20 / 141;
-        else bi->percent = 20 + (bi->adc - 542) * 80 / 208;  /* 750 = full charge ADC */
+        else if (bi->adc < 480) bi->percent = (bi->adc - 400) * 18 / 80;
+        else bi->percent = 18 + (bi->adc - 480) * 82 / 265;
         if (bi->percent > 100) bi->percent = 100;
     }
     close(fd);
@@ -131,16 +133,6 @@ static int bat_table_lookup(int adc) {
     return 0;
 }
 
-static int bat_table_rate_x100(int adc) {
-    int hi = adc + 15 > 750 ? 750 : adc + 15;
-    int lo = adc - 15 < 400 ? 400 : adc - 15;
-    int t1 = bat_table_lookup(hi);
-    int t2 = bat_table_lookup(lo);
-    int dt = t1 - t2;
-    if (dt <= 0) return 250;
-    return 3000 / dt;   /* 30*100 / dt */
-}
-
 static void bat_calc_slope(struct bat_estimator *e, int *slope_x1000) {
     int n = e->count;
     int oldest = (e->head - n + bat_cal_hist_size) % bat_cal_hist_size;
@@ -158,11 +150,31 @@ static void bat_calc_slope(struct bat_estimator *e, int *slope_x1000) {
     *slope_x1000 = (int)(numer * 1000 / denom);
 }
 
+/* Discharge: table-only (no correction — see ALGO 5.3) */
 static void bat_estimate(struct bat_estimator *e, int cur_adc) {
     int tab_min = bat_table_lookup(cur_adc);
 
+    if (e->count >= 3) {
+        int slope_x1000;
+        bat_calc_slope(e, &slope_x1000);
+        if (slope_x1000 >= 0) {
+            e->remain_min = -1;  /* not discharging */
+            e->drain_rate = 0;
+            return;
+        }
+        e->drain_rate = (int)(-(long long)slope_x1000 * 60 / 10);
+    } else {
+        e->drain_rate = 0;
+    }
+
+    e->remain_min = (int)((long long)tab_min * bat_cal_factor / 100);
+    if (e->remain_min < 0) e->remain_min = 0;
+}
+
+/* Charge: linreg extrapolation to ADC=745 */
+static void bat_charge_estimate(struct bat_estimator *e, int cur_adc) {
     if (e->count < 3) {
-        e->remain_min = tab_min;
+        e->remain_min = -1;
         e->drain_rate = 0;
         return;
     }
@@ -170,34 +182,52 @@ static void bat_estimate(struct bat_estimator *e, int cur_adc) {
     int slope_x1000;
     bat_calc_slope(e, &slope_x1000);
 
-    if (slope_x1000 >= 0) {
+    if (slope_x1000 <= 0) {
         e->remain_min = -1;
         e->drain_rate = 0;
         return;
     }
 
-    int drain_rate_x100 = (int)(-(long long)slope_x1000 * 60 / 10);
-    e->drain_rate = drain_rate_x100;
+    e->drain_rate = (int)((long long)slope_x1000 * 60 / 10);
 
-    int tab_rate_x100 = bat_table_rate_x100(cur_adc);
-    int correction_x100 = (int)((long long)tab_rate_x100 * 100 / drain_rate_x100);
-    if (correction_x100 < 30) correction_x100 = 30;
-    if (correction_x100 > 300) correction_x100 = 300;
+    int remaining_adc = 745 - cur_adc;
+    if (remaining_adc <= 0) {
+        e->remain_min = 0;
+        return;
+    }
 
-    e->remain_min = (int)((long long)tab_min * correction_x100 * bat_cal_factor / 10000);
-    if (e->remain_min < 0) e->remain_min = 0;
+    /* Only show charge time in CV phase (ADC > 400) */
+    if (cur_adc <= 400) {
+        e->remain_min = -1;
+        return;
+    }
+
+    e->remain_min = (int)((long long)remaining_adc * 1000 / slope_x1000 / 60);
+    e->remain_min = e->remain_min * bat_cal_factor / 100;
 }
 
 static void bat_update(struct bat_estimator *e, struct battery_info *bi) {
     if (!bi->valid) { e->remain_min = -1; return; }
 
     if (bi->charging) {
-        e->was_charging = 1;
-        bat_hist_clear(e);
-        e->remain_min = -1;
-        e->drain_rate = 0;
+        /* Charging: collect points and estimate time to full */
+        if (!e->was_charging) {
+            bat_hist_clear(e);
+            e->was_charging = 1;
+        }
+        time_t now = time(NULL);
+        if (e->count > 0) {
+            int last = (e->head - 1 + bat_cal_hist_size) % bat_cal_hist_size;
+            if ((now - e->hist[last].t) < bat_cal_interval)
+                goto calc_charge;
+        }
+        bat_hist_push(e, now, bi->adc);
+    calc_charge:
+        bat_charge_estimate(e, bi->adc);
         return;
     }
+
+    /* Discharging */
     if (e->was_charging) {
         bat_hist_clear(e);
         e->was_charging = 0;
@@ -209,10 +239,10 @@ static void bat_update(struct bat_estimator *e, struct battery_info *bi) {
     if (e->count > 0) {
         int last = (e->head - 1 + bat_cal_hist_size) % bat_cal_hist_size;
         if ((now - e->hist[last].t) < bat_cal_interval)
-            goto calc;
+            goto calc_discharge;
     }
     bat_hist_push(e, now, bi->adc);
-calc:
+calc_discharge:
     bat_estimate(e, bi->adc);
 }
 
@@ -468,7 +498,8 @@ int main(void) {
             "\"wifi\":{\"clients\":%s},"
             "\"ping\":{\"google_ms\":%d},"
             "\"battery\":{\"adc\":%d,\"percent\":%d,\"charging\":%s,\"valid\":%s,"
-            "\"no_battery\":%s,\"remain_min\":%d,\"drain_rate\":%d.%d},"
+            "\"no_battery\":%s,\"remain_min\":%d,\"drain_rate\":%d.%d,"
+            "\"raw_hex\":\"%02x %02x\"},"
             "\"uptime\":%ld,\"mem_free_mb\":%ld,\"cpu_load\":%.2f}\n",
             (long)time(NULL),
             li.csq,li.ber,li.rsrp,li.rsrq,li.sinr,li.rssi,li.pci,
@@ -478,6 +509,7 @@ int main(void) {
             bat.adc,bat.percent,bat.charging?"true":"false",bat.valid?"true":"false",
             bat.no_battery?"true":"false",
             bat_est.remain_min, bat_est.drain_rate/100, abs(bat_est.drain_rate)%100,
+            bat.raw1, bat.raw2,
             si.uptime, si.freeram/1024/1024, si.loads[0]/65536.0);
 
         /* Push to socket clients */
