@@ -56,10 +56,9 @@ static void get_battery(struct battery_info *bi) {
         bi->charging = (raw[5] & 0x01) ? 1 : 0;
         bi->no_battery = (raw[5] & 0x60) ? 1 : 0;  /* bit5+bit6 = no battery */
         bi->valid = 1;
-        if (bi->adc < 401) bi->percent = 0;
-        else if (bi->adc < 480) bi->percent = (bi->adc - 400) * 18 / 80;
-        else bi->percent = 18 + (bi->adc - 480) * 82 / 265;
-        if (bi->percent > 100) bi->percent = 100;
+        if (bi->adc <= 400) bi->percent = 0;
+        else if (bi->adc >= 790) bi->percent = 100;
+        else bi->percent = (bi->adc - 400) / 4;
     }
     close(fd);
 }
@@ -114,14 +113,15 @@ static void bat_hist_push(struct bat_estimator *e, time_t t, int adc) {
 
 /* Lookup table: ADC → minutes to ADC=400 (smoothed, from discharge test) */
 static const struct { int adc; int min; } bat_table[] = {
-    {750, 152}, {725, 145}, {700, 130}, {675, 116}, {650, 109},
-    {625, 100}, {600,  88}, {575,  68}, {550,  56}, {525,  43},
-    {500,  37}, {475,  29}, {450,  22}, {425,  12}, {400,   0},
+    {800, 170}, {775, 161}, {750, 152}, {725, 145}, {700, 130},
+    {675, 116}, {650, 109}, {625, 100}, {600,  88}, {575,  68},
+    {550,  56}, {525,  43}, {500,  37}, {475,  29}, {450,  22},
+    {425,  12}, {400,   0},
 };
-#define BAT_TABLE_SIZE 15
+#define BAT_TABLE_SIZE 17
 
 static int bat_table_lookup(int adc) {
-    if (adc >= 750) return 152;
+    if (adc >= 800) return 170;
     if (adc <= 400) return 0;
     for (int i = 0; i < BAT_TABLE_SIZE - 1; i++) {
         if (adc >= bat_table[i + 1].adc) {
@@ -171,39 +171,49 @@ static void bat_estimate(struct bat_estimator *e, int cur_adc) {
     if (e->remain_min < 0) e->remain_min = 0;
 }
 
-/* Charge: linreg extrapolation to ADC=745 */
+/* Charge table: ADC → minutes to ADC=800 (full charge) */
+static const struct { int adc; int min; } charge_table[] = {
+    {400, 124}, {425, 119}, {450, 113}, {475, 104},
+    {500,  94}, {525,  86}, {550,  77}, {575,  69},
+    {600,  61}, {625,  52}, {650,  44}, {675,  37},
+    {700,  29}, {725,  22}, {750,  15}, {775,   7}, {800, 0},
+};
+#define CHARGE_TABLE_SIZE 17
+
+static int charge_table_lookup(int adc) {
+    if (adc <= 400) return 124;
+    if (adc >= 800) return 0;
+    for (int i = 0; i < CHARGE_TABLE_SIZE - 1; i++) {
+        if (adc < charge_table[i + 1].adc) {
+            int da = charge_table[i + 1].adc - charge_table[i].adc;
+            int dm = charge_table[i].min - charge_table[i + 1].min;
+            return charge_table[i + 1].min + (charge_table[i + 1].adc - adc) * dm / da;
+        }
+    }
+    return 0;
+}
+
+/* Charge: table + linreg for rate */
 static void bat_charge_estimate(struct bat_estimator *e, int cur_adc) {
-    if (e->count < 3) {
-        e->remain_min = -1;
+    int tab_min = charge_table_lookup(cur_adc);
+
+    if (e->count >= 3) {
+        int slope_x1000;
+        bat_calc_slope(e, &slope_x1000);
+        if (slope_x1000 <= 0) {
+            e->remain_min = -1;
+            e->drain_rate = 0;
+            return;
+        }
+        e->drain_rate = (int)((long long)slope_x1000 * 60 / 10);
+    } else {
         e->drain_rate = 0;
-        return;
     }
 
-    int slope_x1000;
-    bat_calc_slope(e, &slope_x1000);
+    if (cur_adc <= 400) { e->remain_min = -1; return; }  /* CC phase, unpredictable */
+    if (cur_adc >= 790) { e->remain_min = 0; return; }   /* almost full */
 
-    if (slope_x1000 <= 0) {
-        e->remain_min = -1;
-        e->drain_rate = 0;
-        return;
-    }
-
-    e->drain_rate = (int)((long long)slope_x1000 * 60 / 10);
-
-    int remaining_adc = 745 - cur_adc;
-    if (remaining_adc <= 0) {
-        e->remain_min = 0;
-        return;
-    }
-
-    /* Only show charge time in CV phase (ADC > 400) */
-    if (cur_adc <= 400) {
-        e->remain_min = -1;
-        return;
-    }
-
-    e->remain_min = (int)((long long)remaining_adc * 1000 / slope_x1000 / 60);
-    e->remain_min = e->remain_min * bat_cal_factor / 100;
+    e->remain_min = tab_min * bat_cal_factor / 100;
 }
 
 static void bat_update(struct bat_estimator *e, struct battery_info *bi) {
