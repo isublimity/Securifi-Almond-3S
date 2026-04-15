@@ -238,10 +238,14 @@ static void lcd_init_ili9341(void)
 
 /* === Framebuffer → Display === */
 
+static u16 flush_snap[LCD_W * LCD_H]; /* snapshot buffer to prevent tearing */
+
 static void lcd_flush_fb(void)
 {
-    u16 *pixels = (u16 *)framebuffer;
     int i;
+
+    /* Snapshot framebuffer to avoid tearing during GPIO output */
+    memcpy(flush_snap, framebuffer, FB_SIZE);
 
     /* Refresh non-LCD DIR bits in case other drivers changed them */
     base_dir = gr(GPIO_DIR_OFF) & ~LCD_PIN_MASK;
@@ -251,7 +255,7 @@ static void lcd_flush_fb(void)
 
     lcd_write_mem();
     for (i = 0; i < LCD_W * LCD_H; i++) {
-        lcd_write_16d(pixels[i]);
+        lcd_write_16d(flush_snap[i]);
         if ((i & 0x3FF) == 0) cond_resched(); /* yield every 1024 pixels */
     }
     lcd_cs_deselect();
