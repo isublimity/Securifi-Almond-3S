@@ -38,6 +38,8 @@ static int client_count = 0;
 
 static void sig_handler(int sig) { (void)sig; running = 0; }
 
+static int bat_table_lookup(int adc);  /* forward decl, defined below */
+
 /* ======== PIC Battery ======== */
 struct battery_info {
     int adc, percent, charging, valid, no_battery;
@@ -56,9 +58,7 @@ static void get_battery(struct battery_info *bi) {
         bi->charging = (raw[5] & 0x01) ? 1 : 0;
         bi->no_battery = (raw[5] & 0x60) ? 1 : 0;  /* bit5+bit6 = no battery */
         bi->valid = 1;
-        if (bi->adc <= 400) bi->percent = 0;
-        else if (bi->adc >= 790) bi->percent = 100;
-        else bi->percent = (bi->adc - 400) / 4;
+        bi->percent = bat_table_lookup(bi->adc) * 100 / 170;
     }
     close(fd);
 }
