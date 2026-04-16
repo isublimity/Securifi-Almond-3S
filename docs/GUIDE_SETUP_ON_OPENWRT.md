@@ -13,7 +13,7 @@
 ## Сборка прошивки
 
 ### Базовая прошивка
-Основа: [fildunsky/openwrt](https://github.com/fildunsky/openwrt), ветка `almond-25.12`, ядро 6.12.
+Основа: upstream [OpenWrt 24.10.6](https://github.com/openwrt/openwrt) + [almond3s.patch](../openwrt-patch/almond3s.patch) ([PR #22141](https://github.com/openwrt/openwrt/pull/22141)), ядро 6.6.127.
 
 Пакеты OpenWrt:
 - **kmod-lcd-gpio** — kernel module (lcd_drv.ko, AutoLoad 90)
@@ -157,13 +157,12 @@ i2c-mt7621 при загрузке ставит PIC MSSP в SSPOV state → NACK
 ## Файлы на роутере
 
 ```
-/lib/modules/6.12.74/lcd_drv.ko    — kernel module
-/usr/bin/lcd_render                 — JSON renderer
-/usr/bin/touch_poll                 — touch daemon
-/usr/bin/data_collector             — stats collector
-/usr/bin/lcd_ui.uc                  — UI script
-/dev/lcd                            — LCD framebuffer + PIC ioctl
-/tmp/lcd.sock                       — lcd_render unix socket
-/tmp/lcd_data.json                  — данные (LTE, WiFi, VPN, battery)
-/etc/lcd/scripts/                   — VPN/LTE/reboot скрипты
+/lib/modules/6.6.127/lcd_drv.ko     — kernel module
+/usr/bin/lcd_render                  — JSON renderer
+/usr/bin/touch_poll                  — touch daemon
+/usr/bin/data_collector              — stats collector
+/usr/bin/lcd_ui.uc                   — UI script
+/dev/lcd                             — LCD framebuffer + PIC ioctl
+/tmp/lcd.sock                        — lcd_render unix socket
+/tmp/lcd_data.json                   — данные (LTE, WiFi, VPN, battery)
 ```

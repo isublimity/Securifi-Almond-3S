@@ -73,7 +73,7 @@
 
 ## Прошивка
 
-### Статус: fildunsky_openwrt, ядро 6.12.74
+### Статус: OpenWrt 24.10.6 upstream, ядро 6.6.127, vermagic compatible
 
 - [x] DTS: `&ethphy0 { /delete-property/ interrupts; }` — критично для LAN
 - [x] kmod-lcd-gpio: AutoLoad,90
