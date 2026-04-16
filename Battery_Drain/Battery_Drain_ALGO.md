@@ -81,7 +81,18 @@ bi->no_battery = (raw[5] & 0x60) ? 1 : 0;     // bit5+bit6 = нет батаре
 При вставке батареи: buf[5] переходит 0x69 → 0x41 → 0x01 за ~1-2 цикла (~12-24 сек).
 При отключении батареи: buf[5] переходит 0x01 → 0x69 мгновенно, ADC растёт (зарядник напрямую).
 
-### 1.4 Форма кривой разряда
+### 1.4 Alt-формат PIC (buf[3]=0x01, buf[4]=0x02)
+
+При старте зарядки от мёртвой батареи PIC первые ~5 мин выдаёт **другой формат**:
+buf[3]=0x01, buf[4]=0x02, ADC=830→951 — это напряжение **зарядника**, не батареи.
+Затем PIC переключается в стандартный режим (buf[3]=0x02, buf[4]=0x04), ADC сбрасывается
+и начинает отражать реальное напряжение батареи (от ~8 вверх).
+
+Этот alt-формат **фильтруется** валидацией `buf[3]==0x02 && buf[4]==0x04`.
+Но стоит знать: если увидим ADC > 800 с buf[3]=0x01 — это НЕ суперзаряженная батарея,
+а PIC в калибровочном режиме.
+
+### 1.5 Форма кривой РАЗРЯДА
 
 Кривая разряда **НЕ линейная** — типичная Li-ion:
 
@@ -104,7 +115,93 @@ ADC 200→100:   9 мин  (обвал, ~11 ADC/мин) ← батарея мё�
 | 401–541 | LOW (1–20%) |
 | <401 | CRITICAL (0%) |
 
-### 1.5 Таблица ADC → оставшееся время (эмпирическая, сглаженная)
+### 1.6 Формула процента заряда — ТРЕБУЕТ ЗАМЕНЫ
+
+**Полный заряд батареи = ADC 800** (не 745!). Подтверждено полным циклом зарядки
+(`bat_full.txt`): стабильные значения 0xC8-0xC9 → ADC 802-806. LOG1 начал разряд
+с ADC=745 — батарея была заряжена лишь на ~86%.
+
+**Текущая формула** (data_collector.c, строка ~58):
+```c
+if (bi->adc < 401) bi->percent = 0;
+else if (bi->adc < 542) bi->percent = (bi->adc - 401) * 20 / 141;
+else bi->percent = 20 + (bi->adc - 542) * 80 / 481;
+```
+
+**Проблема**: формула из stock firmware рассчитана на max ADC=1023, реальный = 800.
+При ADC 800 (полный заряд) показывает **62%**.
+
+**Новая формула** — через таблицу разряда (bat_table_lookup уже нужен для remain_min):
+```c
+bi->percent = bat_table_lookup(bi->adc) * 100 / 177;
+```
+
+`bat_table_lookup(adc)` возвращает минуты до ADC=400, 177 = макс (при ADC 800).
+Одна строка, **отдельная таблица не нужна**, точность = кривой разряда.
+
+| ADC | Процент | Описание |
+|-----|---------|----------|
+| 800 | 100% | Полный заряд |
+| 750 | 86% | |
+| 700 | 73% | |
+| 650 | 62% | |
+| 600 | 50% | Половина |
+| 575 | 38% | |
+| 550 | 32% | |
+| 525 | 24% | |
+| 500 | 21% | Пятая часть |
+| 450 | 12% | |
+| 425 | 7% | |
+| 400 | 0% | CRITICAL |
+
+**Альтернатива** (если bat_table_lookup недоступен): `percent = (adc - 400) / 4`.
+Линейная, max ошибка ±7% при ADC 525. Для грубой оценки — сойдёт.
+
+### 1.7 Форма кривой ЗАРЯДКИ
+
+Данные из `Battery_Charge_logs2.txt` + `Battery_Charge_logs2_cont.txt`:
+зарядка от мёртвой батареи (ADC=8 → 480), ~51 мин (зарядка не завершена).
+
+Типичный Li-ion профиль зарядки:
+
+**CC-фаза (Constant Current)** — ADC растёт быстро:
+```
+ADC   0→ 50:   0.4 мин  (120 ADC/мин)
+ADC  50→100:   0.6 мин  (81 ADC/мин)
+ADC 100→150:   0.8 мин  (61 ADC/мин)
+ADC 150→200:   1.0 мин  (48 ADC/мин)
+ADC 200→250:   1.4 мин  (35 ADC/мин)
+ADC 250→300:   1.8 мин  (27 ADC/мин)
+```
+
+**Переход CC→CV** — резкое замедление:
+```
+ADC 300→350:   5.1 мин  (10 ADC/мин — замедление в 3x)
+```
+
+**CV-фаза (Constant Voltage)** — ADC растёт медленно:
+```
+ADC 350→400:  14.2 мин  (3.5 ADC/мин)
+ADC 400→450:  11.1 мин  (4.5 ADC/мин)
+ADC 450→500:  19.2 мин  (2.6 ADC/мин)  ← яма, потом восстанавливается
+ADC 500→650:  ~50  мин  (~3.0 ADC/мин)  ← нет прямых данных, оценка
+ADC 650→700:  10.1 мин  (3.4 ADC/мин)  ← bat_full.txt
+ADC 700→750:   7.3 мин  (3.4 ADC/мин)
+ADC 750→800:  11.1 мин  (4.5 ADC/мин)  ← ускоряется к концу!
+```
+
+**ВАЖНО**: CV-фаза НЕ замедляется экспоненциально как типичный Li-ion!
+Скорость стабильна ~3.0-4.5 ADC/мин от ADC 400 до 800 (полный заряд).
+Яма при ADC 450-500 (~2.6 ADC/мин) — единственное замедление.
+
+**Полный заряд**: ADC **800** (стабильные 0xC8-0xC9 при подключённом зарядном).
+
+**Полный цикл** (от мёртвой батареи):
+- ADC 0→400: ~25 мин (быстро, CC-фаза)
+- ADC 400→800: ~124 мин (CV-фаза, ~3.2 ADC/мин средняя)
+- **Итого: ~2.5 часа от мёртвой до полного**
+
+### 1.8 Таблица ADC → оставшееся время РАЗРЯДА (эмпирическая, сглаженная)
 
 Из тестового разряда, smoothing window=11.
 Таблица до ADC=400 (CRITICAL), ниже — доп. столбец до ADC=100 (реальный конец жизни).
@@ -136,20 +233,18 @@ ADC 200→100:   9 мин  (обвал, ~11 ADC/мин) ← батарея мё�
 
 ### 2.1 Обзор
 
-Два механизма, комбинированные:
+Два механизма:
 
-1. **Lookup table** — эмпирическая таблица ADC → minutes_remaining (работает сразу, без истории)
-2. **Linear regression** — по последним N ADC точкам, корректирует таблицу на основе реальной скорости
+1. **Lookup table** — эмпирическая таблица ADC → minutes_remaining (основная оценка)
+2. **Linear regression** — по последним N ADC точкам, определяет drain_rate и детектирует "не разряжается"
 
 Формула:
 ```
-remain = table_remain(current_adc) * correction_factor * user_cal_factor
+remain = table_remain(current_adc) * user_cal_factor
 ```
 
-Где:
-- `table_remain(adc)` — интерполяция по таблице
-- `correction_factor = table_rate(adc) / measured_rate` — если батарея разряжается быстрее/медленнее чем в тесте
-- `user_cal_factor` — ручной множитель из конфига
+Linreg НЕ корректирует таблицу (см. секцию 5.3 — коррекция ухудшает результат).
+Linreg нужен для: drain_rate в JSON, детекции slope >= 0 (не разряжается).
 
 ### 2.2 Кольцевой буфер (ring buffer)
 
@@ -231,14 +326,15 @@ est->drain_rate = (int)(-(int64_t)slope_x1000 * 60 / 10);  // *60/1000*100 = *60
 struct bat_table_entry { int adc; int min_to_400; };
 
 static const struct bat_table_entry bat_table[] = {
-    {750, 152}, {725, 145}, {700, 130}, {675, 116}, {650, 109},
-    {625, 100}, {600,  88}, {575,  68}, {550,  56}, {525,  43},
-    {500,  37}, {475,  29}, {450,  22}, {425,  12}, {400,   0},
+    {800, 177}, {775, 165}, {750, 152}, {725, 145}, {700, 130},
+    {675, 116}, {650, 109}, {625, 100}, {600,  88}, {575,  68},
+    {550,  56}, {525,  43}, {500,  37}, {475,  29}, {450,  22},
+    {425,  12}, {400,   0},
 };
-#define BAT_TABLE_SIZE 15
+#define BAT_TABLE_SIZE 17
 
 int bat_table_lookup(int adc) {
-    if (adc >= 750) return 152;
+    if (adc >= 800) return 177;
     if (adc <= 400) return 0;
     for (int i = 0; i < BAT_TABLE_SIZE - 1; i++) {
         if (adc >= bat_table[i + 1].adc) {
@@ -251,60 +347,41 @@ int bat_table_lookup(int adc) {
 }
 ```
 
-**Табличная скорость** (ADC/мин * 100, целочисленная):
-```c
-int bat_table_rate_x100(int adc) {
-    // Берём таблицу в окне ±15 ADC
-    int t1 = bat_table_lookup(adc + 15 > 750 ? 750 : adc + 15);
-    int t2 = bat_table_lookup(adc - 15 < 400 ? 400 : adc - 15);
-    int dt = t1 - t2;  // минут на 30 ADC
-    if (dt <= 0) return 250;  // fallback 2.5 ADC/мин
-    return 3000 / dt;  // 30 * 100 / dt
-}
-```
+*Функция `bat_table_rate_x100` убрана — correction_factor не используется (см. 5.3).*
 
-### 2.5 Комбинированная оценка
+### 2.5 Оценка оставшегося времени
 
 ```c
 void bat_estimate(struct bat_estimator *est, int cur_adc) {
+    // 1. Таблица — основная оценка
     int tab_min = bat_table_lookup(cur_adc);
 
-    if (est->count < 3) {
-        // Мало данных — только таблица
-        est->remain_min = tab_min;
-        est->drain_rate = 0;
-        return;
+    // 2. Linreg — только для drain_rate и детекции "не разряжается"
+    if (est->count >= 3) {
+        int slope_x1000;
+        bat_calc_slope(est, &slope_x1000);
+
+        if (slope_x1000 >= 0) {
+            // ADC не падает → не разряжается (шум или рост)
+            est->remain_min = -1;
+            est->drain_rate = 0;
+            return;
+        }
+
+        // drain_rate_x100 = ADC/мин * 100 (информационное поле)
+        est->drain_rate = (int)(-(int64_t)slope_x1000 * 60 / 10);
     }
 
-    int slope_x1000;
-    bat_calc_slope(est, &slope_x1000);
-
-    if (slope_x1000 >= 0) {
-        // Не разряжается (шум или рост)
-        est->remain_min = -1;
-        est->drain_rate = 0;
-        return;
-    }
-
-    // drain_rate_x100 = ADC/мин * 100
-    int drain_rate_x100 = (int)(-(int64_t)slope_x1000 * 60 / 10);
-    est->drain_rate = drain_rate_x100;
-
-    int tab_rate_x100 = bat_table_rate_x100(cur_adc);
-
-    // correction_x100 = tab_rate / measured_rate * 100
-    int correction_x100 = (int)((int64_t)tab_rate_x100 * 100 / drain_rate_x100);
-
-    // Clamp: 30..300 (0.3x .. 3.0x)
-    if (correction_x100 < 30) correction_x100 = 30;
-    if (correction_x100 > 300) correction_x100 = 300;
-
-    // remain = tab_min * correction * user_factor
-    // user_factor_x100 тоже fixed-point (100 = 1.0)
-    est->remain_min = (int)((int64_t)tab_min * correction_x100 * user_factor_x100 / 10000);
+    // 3. Результат = таблица * user_factor (без correction!)
+    est->remain_min = (int)((int64_t)tab_min * bat_cal_factor / 100);
     if (est->remain_min < 0) est->remain_min = 0;
 }
 ```
+
+**Почему без correction_factor**: валидация на втором тесте (Points10aprl.txt)
+показала, что коррекция ухудшает оценку (+60% ошибка vs +6% без неё).
+Форма кривой разряда отличается между тестами, и correction усиливает расхождение.
+Подробности — секция 5.3.
 
 ### 2.6 Главная функция (bat_update)
 
@@ -352,12 +429,149 @@ calc:
 }
 ```
 
-### 2.7 Когда НЕ показывать время
+### 2.7 Оценка времени ЗАРЯДКИ (charge_remain_min)
 
-- `charging == true` → показывать "зарядка", remain_min = -1
-- `valid == false` → показывать "?", remain_min = -1
-- `adc < 100` → батарея мёртвая, remain_min = 0
-- `count < 3` — показывать оценку по таблице (грубую, но лучше чем ничего)
+При `charging == true` — оценить время до полного заряда (ADC=800).
+
+**Подход: таблица зарядки** (аналогично разряду).
+CV-фаза стабильна ~3-4 ADC/мин → таблица работает.
+
+```c
+// Charge table: {adc, minutes_to_800}
+static const struct bat_table_entry charge_table[] = {
+    {400, 124}, {425, 119}, {450, 113}, {475, 104},
+    {500,  94}, {525,  86}, {550,  77}, {575,  69},
+    {600,  61}, {625,  52}, {650,  44}, {675,  37},
+    {700,  29}, {725,  22}, {750,  15}, {775,   7}, {800, 0},
+};
+#define CHARGE_TABLE_SIZE 17
+
+int charge_table_lookup(int adc) {
+    if (adc <= 400) return 124;
+    if (adc >= 800) return 0;
+    for (int i = 0; i < CHARGE_TABLE_SIZE - 1; i++) {
+        if (adc >= charge_table[i + 1].adc) {
+            // Impossible to be less than charge_table[i].adc here
+            // because we iterate from lowest
+        }
+    }
+    // Same interpolation logic as bat_table_lookup
+    for (int i = 0; i < CHARGE_TABLE_SIZE - 1; i++) {
+        if (adc < charge_table[i + 1].adc) {
+            int da = charge_table[i + 1].adc - charge_table[i].adc;
+            int dm = charge_table[i].min_to_800 - charge_table[i + 1].min_to_800;
+            return charge_table[i + 1].min_to_800 + (charge_table[i + 1].adc - adc) * dm / da;
+        }
+    }
+    return 0;
+}
+```
+
+```c
+void bat_charge_estimate(struct bat_estimator *est, int cur_adc) {
+    // 1. Таблица
+    int tab_min = charge_table_lookup(cur_adc);
+
+    // 2. Linreg для charge_rate (информационное поле)
+    if (est->count >= 3) {
+        int slope_x1000;
+        bat_calc_slope(est, &slope_x1000);
+        if (slope_x1000 <= 0) {
+            est->remain_min = -1;
+            est->drain_rate = 0;
+            return;
+        }
+        est->drain_rate = (int)((int64_t)slope_x1000 * 60 / 10);
+    }
+
+    // 3. Результат
+    est->remain_min = tab_min * bat_cal_factor / 100;
+    if (cur_adc >= 790) est->remain_min = 0;  // почти полный
+}
+```
+
+**Когда показывать**:
+- `charging == true` И `adc > 400` → "~Xh Ym до 100%"
+- `charging == true` И `adc <= 400` → только "зарядка" (CC-фаза, непредсказуемо)
+- `charging == true` И `adc >= 790` → "заряжено"
+
+### 2.8 Модификация bat_update для зарядки
+
+```c
+void bat_update(struct bat_estimator *est, struct battery_info *bi) {
+    if (!bi->valid) {
+        est->remain_min = -1;
+        return;
+    }
+
+    if (bi->charging) {
+        // ЗАРЯДКА: тоже собираем точки и считаем rate
+        if (!est->was_charging) {
+            bat_hist_clear(est);  // переход discharge→charge
+            est->was_charging = 1;
+        }
+
+        time_t now = time(NULL);
+        if (est->count > 0) {
+            int last = (est->head - 1 + BAT_HIST_MAX) % BAT_HIST_MAX;
+            if ((now - est->hist[last].t) < bat_cal_interval)
+                goto calc_charge;
+        }
+        bat_hist_push(est, now, bi->adc);
+
+    calc_charge:
+        bat_charge_estimate(est, bi->adc);
+        return;
+    }
+
+    // РАЗРЯД (как раньше)
+    if (est->was_charging) {
+        bat_hist_clear(est);
+        est->was_charging = 0;
+    }
+
+    if (bi->adc < 100) {
+        est->remain_min = 0;
+        return;
+    }
+
+    time_t now = time(NULL);
+    if (est->count > 0) {
+        int last = (est->head - 1 + BAT_HIST_MAX) % BAT_HIST_MAX;
+        if ((now - est->hist[last].t) < bat_cal_interval)
+            goto calc_discharge;
+    }
+    bat_hist_push(est, now, bi->adc);
+
+calc_discharge:
+    bat_estimate(est, bi->adc);
+}
+```
+
+### 2.9 Когда НЕ показывать время
+
+**Разряд:**
+- `valid == false` → "?", remain_min = -1
+- `adc < 100` → remain_min = 0
+- Иначе → показывать remain_min из таблицы
+
+**Зарядка:**
+- `adc <= 400` → "зарядка" без оценки времени (CC-фаза, оценка бесполезна)
+- `adc > 400` → "зарядка ~Xh Ym" (CV-фаза, табличная оценка)
+- `adc >= 790` → "заряжено" (close to full, ADC=800)
+
+### 2.10 JSON поля
+
+```json
+"battery": {
+    "adc": 628, "percent": 50, "charging": false, "valid": true,
+    "remain_min": 87, "drain_rate": 215
+}
+```
+
+Семантика зависит от `charging`:
+- `charging=false`: `remain_min` = минут до разряда, `drain_rate` = скорость разряда (ADC/мин*100, >0)
+- `charging=true`:  `remain_min` = минут до полного заряда (-1 если ADC<400), `drain_rate` = скорость зарядки (ADC/мин*100, >0)
 
 ---
 
@@ -444,10 +658,9 @@ static int bat_cal_interval = 30;  // seconds
 2. `bat_hist_clear(struct bat_estimator *e)` — `e->count = 0; e->head = 0;`
 3. `bat_hist_push(struct bat_estimator *e, time_t t, int adc)` — push в ring buffer, `head = (head+1) % hist_size`
 4. `bat_table_lookup(int adc)` — таблица → минуты (см. 2.4)
-5. `bat_table_rate_x100(int adc)` — табличная скорость * 100 (см. 2.4)
-6. `bat_calc_slope(struct bat_estimator *e, int *slope_x1000)` — linreg на int64_t (см. 2.3)
-7. `bat_estimate(struct bat_estimator *e, int cur_adc)` — комбинированная оценка (см. 2.5)
-8. `bat_update(struct bat_estimator *e, struct battery_info *bi)` — главный entry point (см. 2.6)
+5. `bat_calc_slope(struct bat_estimator *e, int *slope_x1000)` — linreg на int64_t (см. 2.3)
+6. `bat_estimate(struct bat_estimator *e, int cur_adc)` — таблица + linreg для drain_rate (см. 2.5)
+7. `bat_update(struct bat_estimator *e, struct battery_info *bi)` — главный entry point (см. 2.6)
 
 ### 4.2 Вызов в main loop
 
@@ -489,11 +702,20 @@ bat_cal_load();
 ```javascript
 let bat_txt = bvalid ? bpct + "%" : "?";
 let remain = bat?.remain_min;
-if (remain != null && remain >= 0 && !bchg) {
-    if (remain >= 60)
-        bat_txt += " ~" + int(remain / 60) + "h" + sprintf("%02d", remain % 60);
-    else
-        bat_txt += " ~" + remain + "m";
+if (remain != null && remain >= 0) {
+    if (bchg) {
+        // Зарядка: "87% ~1h30 до 100%"
+        if (remain >= 60)
+            bat_txt += " ~" + int(remain / 60) + "h" + sprintf("%02d", remain % 60);
+        else if (remain > 0)
+            bat_txt += " ~" + remain + "m";
+    } else {
+        // Разряд: "87% ~2h15"
+        if (remain >= 60)
+            bat_txt += " ~" + int(remain / 60) + "h" + sprintf("%02d", remain % 60);
+        else
+            bat_txt += " ~" + remain + "m";
+    }
 }
 lcd_text(bat_x + 18, 2, bat_txt, bat_color, bat_bg, 2);
 ```
@@ -502,39 +724,93 @@ lcd_text(bat_x + 18, 2, bat_txt, bat_color, bat_bg, 2);
 
 ## 5. Точность оценки
 
-### 5.1 Чистый linreg (N=20, interval=30s, cutoff=400)
+### 5.1 Валидация на втором тесте (Points10aprl.txt)
 
-| Диапазон ADC | Медианная ошибка | P25–P75 |
-|-------------|-----------------|---------|
-| 600–750 | +6% | -11% .. +42% |
-| 450–600 | +55% | +10% .. +87% |
-| 400–450 | +2% | -15% .. +21% |
-| **Общая** | **+34%** | **-10% .. +73%** |
+Второй тест разряда: ADC 560→346, 117.8 мин, 1552 валидных точки.
+**Условия отличаются** от LOG1 — другая нагрузка.
 
-Большая ошибка в 450–600: кривая разряда нелинейна, линейная экстраполяция переоценивает.
+**Сравнение скоростей разряда (LOG1 vs LOG2) в перекрывающемся диапазоне:**
 
-### 5.2 Таблица + коррекция (комбинированный метод)
+| Диапазон ADC | LOG1 (ADC/мин) | LOG2 (ADC/мин) | Разница |
+|-------------|---------------|---------------|---------|
+| 560→530 | 1.78 | 2.50 | +40% |
+| 530→500 | 3.89 | 2.21 | -43% |
+| 500→470 | 3.05 | 1.87 | -39% |
+| 470→440 | 3.68 | 3.69 | 0% |
+| 440→410 | 3.04 | 2.50 | -18% |
+| 410→380 | 2.53 | 2.58 | +2% |
+| 380→350 | 1.70 | 1.02 | -40% |
 
-| Диапазон ADC | Медианная ошибка | P25–P75 |
-|-------------|-----------------|---------|
-| 600–750 | +0% | -21% .. +30% |
-| 450–600 | +18% | +6% .. +34% |
-| 400–450 | +9% | -7% .. +29% |
-| **Общая** | **+11%** | **-2% .. +34%** |
+Скорости разряда отличаются до **40-43%** между тестами — это нормально для Li-ion
+(зависит от нагрузки, температуры, состояния батареи).
 
-Комбинированный метод значительно стабильнее. P25–P75 сужается с [-10,+73] до [-2,+34].
+### 5.2 Результаты на LOG2
 
-**ВАЖНО**: это оценка на СВОИХ данных (один и тот же тест). На другом цикле разряда
-(другая нагрузка, температура, износ батареи) ошибка будет больше. Linreg-коррекция
-именно для этого и нужна — подстраивает таблицу под реальные условия.
+**Таблица-only (без linreg):**
 
-### 5.3 Источники ошибки
+| Метрика | Значение |
+|---------|----------|
+| Медианная ошибка | **+5.6%** |
+| P25–P75 | **-7% .. +26%** |
 
-1. **Шум ADC ±2–3** — при коротком окне SNR плохой, увеличиваем окно до 10 мин
-2. **Нелинейность кривой** — таблица компенсирует, linreg только корректирует масштаб
-3. **Нагрузка** — WiFi/LTE/LCD активность влияет на скорость разряда
+**Комбинированный метод (table + linreg correction):**
+
+| Метрика | Значение |
+|---------|----------|
+| Медианная ошибка | **+60.8%** |
+| P25–P75 | **+13% .. +81%** |
+
+### 5.3 ВЫВОД: linreg-коррекция УХУДШАЕТ оценку
+
+Correction_factor = `table_rate / measured_rate` предполагает, что ФОРМА кривой
+одинакова, а отличается только МАСШТАБ (быстрее/медленнее). Но реальность:
+форма кривой ТОЖЕ отличается между разрядами (разные горбы в разных местах).
+
+Correction умножает табличное время на отношение скоростей. Если в данной точке
+ADC кривая LOG2 плоская (rate=1.6), а таблица из LOG1 говорит rate=3.5 — correction
+= 3.5/1.6 = 2.19, и время завышается в 2 раза.
+
+**Рекомендация: НЕ использовать correction_factor.**
+Оставить **только таблицу с линейной интерполяцией** — она даёт ±10% на чужих данных,
+что лучше чем ±60% с коррекцией.
+
+Linreg нужен ТОЛЬКО для:
+- `drain_rate` в JSON (информационное поле — скорость разряда)
+- Если `slope >= 0` → батарея не разряжается → `remain_min = -1`
+
+### 5.4 Упрощённый алгоритм (рекомендация)
+
+```c
+void bat_estimate(struct bat_estimator *est, int cur_adc) {
+    // 1. Таблица — всегда
+    int tab_min = bat_table_lookup(cur_adc);
+
+    // 2. Linreg — только для drain_rate и детекции "не разряжается"
+    if (est->count >= 3) {
+        int slope_x1000;
+        bat_calc_slope(est, &slope_x1000);
+
+        if (slope_x1000 >= 0) {
+            est->remain_min = -1;  // не разряжается
+            est->drain_rate = 0;
+            return;
+        }
+        est->drain_rate = (int)(-(int64_t)slope_x1000 * 60 / 10);
+    }
+
+    // 3. Результат = таблица * user_factor
+    est->remain_min = tab_min * bat_cal_factor / 100;
+    if (est->remain_min < 0) est->remain_min = 0;
+}
+```
+
+### 5.5 Источники ошибки
+
+1. **Нагрузка** — WiFi/LTE/LCD активность меняет скорость разряда на ±40%
+2. **Нелинейность** — таблица компенсирует, достаточно точно (±10%)
+3. **Шум ADC ±2–3** — для linreg rate, НЕ влияет на таблицу
 4. **Температура** — Li-ion имеет другую ёмкость при холоде
-5. **Износ** — со временем ёмкость уменьшается, нужна перекалибровка
+5. **Износ** — со временем ёмкость уменьшается, калибровка через `time_factor`
 
 ---
 
@@ -585,7 +861,11 @@ BAT_HIST_MAX=30 * 8 bytes = 240 bytes RAM — пренебрежимо.
 | `modules/data_collector.c` | **СЮДА ВНОСИТЬ ИЗМЕНЕНИЯ** — C daemon, строка ~44 (структуры), ~303 (вызов) |
 | `modules/lcd_ui.uc` | UI — строка ~460, добавить отображение remain_min |
 | `Battery_Drain/Battery_Drain_logs1.txt` | Сырой лог разряда (1213 строк) |
-| `Battery_Drain/Battery_Charge_logs1.txt` | Лог зарядки (34 строки) |
+| `Battery_Drain/Battery_Charge_logs1.txt` | Лог зарядки #1 (34 строки, ADC 487→503) |
+| `Battery_Drain/Battery_Charge_logs2.txt` | Лог зарядки #2 (199 строк, ADC 8→443, CC+CV фазы) |
+| `Battery_Drain/Battery_Charge_logs2_cont.txt` | Продолжение зарядки (ADC 354→480, CV-фаза) |
+| `bat_full.txt` | Полная зарядка, верхний диапазон (ADC 665→806, подтверждает full=800) |
+| `Points10aprl.txt` | Второй тест разряда (1563 строки, ADC 560→346) |
 | `Battery_Drain/discharge_curve.png` | График кривой разряда |
 | `Battery_Drain/Battery_Drain_ALGO.md` | Этот документ |
 | `/etc/lcd/bat_cal` | Конфиг калибровки, key=value (на роутере) |
@@ -594,9 +874,14 @@ BAT_HIST_MAX=30 * 8 bytes = 240 bytes RAM — пренебрежимо.
 
 ## 8. Сводка: что делать
 
-1. В `data_collector.c` добавить `struct bat_estimator` + ring buffer + linreg (int64_t) + lookup table
-2. Добавить `bat_cal_load()` при старте, `bat_update()` после `get_battery()` в main loop
-3. Расширить JSON battery: поля `remain_min`, `drain_rate`
-4. В `lcd_ui.uc` показать оставшееся время рядом с процентом батареи
-5. Создать `/etc/lcd/bat_cal` с defaults на роутере
-6. Собрать: `./build.sh userspace && ./build.sh deploy`
+1. **Заменить формулу процента** в `data_collector.c` (строка ~58, секция 1.6):
+   ```c
+   bi->percent = bat_table_lookup(bi->adc) * 100 / 177;
+   ```
+   Используем таблицу разряда (уже нужна для remain_min). Полный заряд = ADC **800**.
+2. В `data_collector.c` добавить `struct bat_estimator` + ring buffer + linreg (int64_t) + lookup table
+3. Добавить `bat_cal_load()` при старте, `bat_update()` после `get_battery()` в main loop (секция 2.8)
+4. Расширить JSON battery: поля `remain_min`, `drain_rate`
+5. В `lcd_ui.uc` показать оставшееся время рядом с процентом батареи
+6. Файл `/etc/lcd/bat_cal` — опционален, без него работают defaults
+7. Собрать: `./build.sh userspace && ./build.sh deploy`
