@@ -66,6 +66,3 @@
 - [x] Default IP 192.168.11.1
 - [x] VPN через opkg (vermagic совпадает)
 - [x] first_setup.sh + install_to_router.sh
-- [ ] Включить WireGuard в прошивку (build-time crypto dependency issue)
-- [ ] Рассмотреть NCM+xmm вместо MBIM
-- [ ] CI/CD автосборка прошивки
