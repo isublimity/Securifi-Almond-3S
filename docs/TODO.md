@@ -29,7 +29,6 @@
 - [x] GPIO reset 1s pulse
 - [x] first_setup.sh: автонастройка APN + reset
 - [x] Interface name: wwan (стандартное)
-- [ ] LTE watchdog как procd сервис
 - [ ] **НЕ обновлять firmware модема!** (MBIM пропадёт)
 
 ## VPN
