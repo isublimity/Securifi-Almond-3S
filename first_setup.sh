@@ -1,9 +1,60 @@
 #!/bin/sh
 #
-# first_setup.sh — Настройка Almond 3S после прошивки OpenWrt
+# first_setup.sh — Настройка Almond 3S после прошивки OpenWrt 24.10.6
 #
 # Бинарники (lcd_render, data_collector, touch_poll, lcd_drv.ko) уже в прошивке
 # как пакеты OpenWrt. Этот скрипт настраивает систему и ставит UI скрипты.
+#
+# ========================================================================
+# ФИКСЫ И ЧТО ОНИ ДЕЛАЮТ
+# ========================================================================
+#
+# 1. SYSTEM
+#    - hostname=Almond3S, timezone=Europe/Moscow (MSK-3)
+#    - LAN IP: 192.168.11.1 (дефолт OpenWrt 192.168.1.1 конфликтует с домашним роутером)
+#    - IRQ affinity: раскидывает прерывания по ядрам CPU (иначе всё на CPU0):
+#        IRQ 31 (xhci-hcd/USB/LTE)    → CPU1  — модем не мешает сетевому стеку
+#        IRQ 33 (mt76x2e WiFi 5GHz)   → CPU3  — WiFi 5G на отдельном ядре
+#        IRQ 34 (mt76x2e WiFi 2.4GHz) → CPU2  — WiFi 2.4G на отдельном ядре
+#      (Номера IRQ для ядра 6.6.127 upstream. Для 6.12.74 fildunsky: 30/32/33)
+#
+# 2. WIFI
+#    - Фикс: MT7662E PCIe не привязывается автоматически к mt7615e драйверу
+#      → в rc.local: echo "14c3 7662" > /sys/bus/pci/drivers/mt7615e/new_id
+#    - Auto-detect: какой из radio0/radio1 — 5GHz, а какой — 2.4GHz
+#      (порядок зависит от PCI enumeration, меняется между прошивками)
+#    - Country=CN (ch165 — дальше всего от соседних Zeekr/WiFi роутеров)
+#    - 5GHz: Almond-5G ch165 VHT20, 2.4GHz: Almond ch6 HT40, PSK2 key=12345678
+#
+# 3. LTE (Fibocom L860-GL, MBIM через USB)
+#    - GPIO reset модема при каждом boot (без этого модем может не стартануть):
+#        echo 1 > modem_reset; sleep 1; echo 0 > modem_reset; wait 15s
+#    - MBIM verify через umbim — если timeout, делаем второй reset
+#    - AT очистка profile APN 1-8 (стоковые Verizon APN ломают подключение)
+#    - UCI interface: network.wwan (proto mbim, APN=internet, metric=100)
+#    - Firewall: wwan в wan zone (masquerade для LAN → LTE)
+#    - ВАЖНО: НЕ обновлять прошивку модема! Новые прошивки убирают MBIM.
+#
+# 4. VPN скрипты (без самих VPN — они ставятся через opkg после прошивки)
+#    - /etc/lcd/scripts/vpn_{wg,ovpn,l2tp}_{on,off}.sh — управление через LCD
+#    - /etc/lcd/scripts/lte_reset.sh — GPIO reset если MBIM повис
+#    - /etc/lcd/scripts/reboot.sh — kill UI + reboot
+#    - Hotplug /etc/hotplug.d/iface/90-wg-route — добавляет default route
+#      ТОЛЬКО после подтверждённого handshake (иначе роутим в чёрную дыру)
+#
+# 5. LCD UI
+#    - lcd_drv.ko autoload через /etc/modules.d/90-lcd-drv
+#    - Скачивает актуальный lcd_ui.uc с GitHub (бинарники уже в прошивке)
+#    - init.d/lcd_ui (START=99) — запускает 4 процесса под procd:
+#        lcd_render, touch_poll daemon_fg, data_collector, ucode lcd_ui.uc
+#    - touch_start через write() в /dev/lcd — инициирует SX8650
+#
+# 6. PRIVATE (опционально — ключи VPN)
+#    - Читает /tmp/secrets.sh (должен быть скопирован отдельно через scp)
+#    - Устанавливает WG ключи (Saturn-Router endpoint)
+#    - Настраивает firewall для wg0 + vpn (tun0)
+#
+# ========================================================================
 #
 # Запуск:
 #   sh first_setup.sh --all             — полная настройка (без приватных ключей)
@@ -13,6 +64,10 @@
 #   sh first_setup.sh --setup_ui        — только LCD UI
 #   sh first_setup.sh --setup_vpn       — VPN скрипты + hotplug
 #   sh first_setup.sh --setup_private   — только приватные ключи
+#
+# Рекомендуемый порядок:
+#   ./install_to_router.sh              — из репо, делает scp + sh first_setup.sh --all
+#   opkg update && opkg install kmod-wireguard wireguard-tools luci-proto-wireguard
 #
 
 REPO="https://raw.githubusercontent.com/isublimity/Securifi-Almond-3S/main"
