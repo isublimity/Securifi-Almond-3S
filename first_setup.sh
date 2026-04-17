@@ -39,9 +39,9 @@ setup_system() {
     grep -q "smp_affinity" /etc/rc.local || {
         sed -i '/^exit 0/i\
 # IRQ optimization\
-echo 2 > "/proc/irq/30/smp_affinity"   # USB/xhci (LTE modem) -> Core1t2\
-echo 4 > "/proc/irq/33/smp_affinity"   # WiFi 2.4GHz (mt76x2e) -> Core2t1\
-echo 8 > "/proc/irq/32/smp_affinity"   # WiFi 5GHz (mt76x2e) -> Core2t2' /etc/rc.local
+echo 2 > "/proc/irq/31/smp_affinity"   # USB/xhci (LTE modem) -> Core1t2\
+echo 4 > "/proc/irq/34/smp_affinity"   # WiFi 2.4GHz (mt76x2e) -> Core2t1\
+echo 8 > "/proc/irq/33/smp_affinity"   # WiFi 5GHz (mt76x2e) -> Core2t2' /etc/rc.local
     }
 
     log "  hostname=Almond3S, LAN=192.168.11.1, TZ=MSK-3"
