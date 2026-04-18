@@ -265,6 +265,11 @@ static void lcd_flush_fb(void)
 
 /* === Demoscene animated splash (plasma + palette cycling) === */
 
+/* Forward declarations — font/putchar are defined further below */
+static const u8 kfont[96][5];
+static void fb_putchar(u16 *fb, int x, int y, char ch, u16 fg, u16 bg);
+static void fb_puts(u16 *fb, int x, int y, const char *s, u16 fg, u16 bg);
+
 /* Sine LUT: 256 entries, values 0-255 (fixed-point sin*127+128) */
 static const u8 sin_lut[256] = {
     128,131,134,137,140,143,146,149,152,155,158,162,165,167,170,173,
@@ -596,9 +601,240 @@ static void overlay_logo_alpha(void)
     }
 }
 
+/* === Scene 7: Matrix rain forming a rabbit — "Wake up, Neo..." ===
+ *
+ * Green characters fall down each column. In the accumulation phase
+ * (mid-timeline), any glyph that drops through a cell belonging to the
+ * rabbit mask gets imprinted into a sticky layer — so over time the
+ * rain visibly traces the silhouette of a rabbit.  The last kmsg line
+ * is shown along the very bottom as a live console status.
+ */
+#define MATRIX_COLS 53                /* LCD_W / 6 */
+#define MATRIX_ROWS 34                /* LCD_H / 7 */
+
+static char matrix_dmesg_line[128];
+
+static void matrix_update_dmesg(void)
+{
+    struct kmsg_dump_iter iter;
+    char buf[256];
+    size_t len;
+    kmsg_dump_rewind(&iter);
+    while (kmsg_dump_get_line(&iter, true, buf, sizeof(buf) - 1, &len)) {
+        if (!len) continue;
+        buf[len] = 0;
+        while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
+            buf[--len] = 0;
+        char *msg = buf;
+        if (msg[0] == '[') {
+            char *p = strchr(msg, ']');
+            if (p) msg = p + 2;
+        }
+        if (*msg) {
+            strncpy(matrix_dmesg_line, msg, sizeof(matrix_dmesg_line) - 1);
+            matrix_dmesg_line[sizeof(matrix_dmesg_line) - 1] = 0;
+        }
+    }
+}
+#define RAB_W 20
+#define RAB_H 22
+#define RAB_X0 ((MATRIX_COLS - RAB_W) / 2)   /* 16 */
+#define RAB_Y0 3                              /* upper half so text fits below */
+
+static int   matrix_init;
+static u8    m_drop_y[MATRIX_COLS];
+static u8    m_drop_sp[MATRIX_COLS];
+static u8    m_drop_tick[MATRIX_COLS];
+static char  m_chr[MATRIX_ROWS][MATRIX_COLS];
+static u8    m_sticky[MATRIX_ROWS][MATRIX_COLS];   /* 0 = empty, else brightness */
+static char  m_sticky_chr[MATRIX_ROWS][MATRIX_COLS];
+
+/* 20×22 rabbit mask, '#' = filled, ' ' = empty */
+static const char *rabbit_mask[RAB_H] = {
+    "   ##        ##     ",
+    "   ##        ##     ",
+    "   ##        ##     ",
+    "   ####    ####     ",
+    "   #####  #####     ",
+    "   ################ ",
+    "  ################# ",
+    " ################## ",
+    " ################## ",
+    "####################",
+    "## ############## ##",
+    "## ############## ##",
+    "####################",
+    " ################## ",
+    " ################## ",
+    "  ################# ",
+    "   ################ ",
+    "    ##############  ",
+    "     ############   ",
+    "      ##########    ",
+    "       ########     ",
+    "         ####       ",
+};
+
+static inline int in_rabbit(int r, int c)
+{
+    int lr = r - RAB_Y0, lc = c - RAB_X0;
+    if (lr < 0 || lr >= RAB_H) return 0;
+    if (lc < 0 || lc >= RAB_W) return 0;
+    return rabbit_mask[lr][lc] == '#';
+}
+
+static void matrix_draw_char(int row, int col, char ch, u16 color)
+{
+    u16 *fb = (u16 *)framebuffer;
+    int idx = ch - 32;
+    const u8 *gp;
+    int ci, ri;
+    int px = col * 6, py = row * 7;
+    if (idx < 0 || idx > 94) idx = 0;
+    gp = kfont[idx];
+    for (ri = 0; ri < 7; ri++)
+        for (ci = 0; ci < 5; ci++)
+            if ((unsigned)(px + ci) < LCD_W &&
+                (unsigned)(py + ri) < LCD_H &&
+                (gp[ci] & (1 << ri)))
+                fb[(py + ri) * LCD_W + px + ci] = color;
+}
+
+static void scene_matrix(int t)
+{
+    u16 *fb = (u16 *)framebuffer;
+    int i, k, r, c;
+    int accumulating;
+
+    if (!matrix_init) {
+        for (i = 0; i < MATRIX_COLS; i++) {
+            m_drop_y[i]    = sin_lut[(i * 7) & 0xFF] % MATRIX_ROWS;
+            m_drop_sp[i]   = 1 + (sin_lut[(i * 13) & 0xFF] & 0x07);
+            m_drop_tick[i] = 0;
+        }
+        for (r = 0; r < MATRIX_ROWS; r++) {
+            for (c = 0; c < MATRIX_COLS; c++) {
+                m_chr[r][c] = 33 + ((r * 7 + c * 13) % 94);
+                m_sticky[r][c] = 0;
+                m_sticky_chr[r][c] = m_chr[r][c];
+            }
+        }
+        matrix_init = 1;
+    }
+
+    /* Fade green channel everywhere for trail decay */
+    for (i = 0; i < LCD_W * LCD_H; i++) {
+        u16 pxv = fb[i];
+        u8 g = (pxv >> 5) & 0x3F;
+        g = (g * 13) >> 4;
+        fb[i] = (u16)g << 5;
+    }
+
+    /* Accumulation window: drops entering rabbit cells imprint permanently.
+     * Before — pure rain. After — rabbit stays fully lit. */
+    accumulating = (t >= 28 && t < 115);
+
+    /* Advance columns and draw rain */
+    for (i = 0; i < MATRIX_COLS; i++) {
+        m_drop_tick[i]++;
+        if (m_drop_tick[i] >= m_drop_sp[i]) {
+            m_drop_tick[i] = 0;
+            m_drop_y[i]++;
+            if (m_drop_y[i] >= MATRIX_ROWS + 12) {
+                m_drop_y[i] = 0;
+                m_drop_sp[i] = 1 + (sin_lut[(t + i * 11) & 0xFF] & 0x07);
+            }
+            r = m_drop_y[i];
+            if (r < MATRIX_ROWS) {
+                char ch = 33 + (sin_lut[(t * 3 + i * 17 + r * 5) & 0xFF] % 94);
+                m_chr[r][i] = ch;
+                if (accumulating && in_rabbit(r, i)) {
+                    m_sticky[r][i] = 255;
+                    m_sticky_chr[r][i] = ch;
+                }
+            }
+        }
+        int head = m_drop_y[i];
+        for (k = 0; k < 10; k++) {
+            int rr = head - k;
+            if (rr < 0 || rr >= MATRIX_ROWS) continue;
+            u16 color;
+            if (k == 0) {
+                color = 0xFFFF;              /* bright white head */
+            } else {
+                int g = 58 - k * 6;
+                if (g < 4) g = 4;
+                color = (u16)g << 5;         /* green trail */
+            }
+            matrix_draw_char(rr, i, m_chr[rr][i], color);
+        }
+    }
+
+    /* Sticky layer: rabbit imprint, bright green */
+    for (r = 0; r < MATRIX_ROWS; r++) {
+        for (c = 0; c < MATRIX_COLS; c++) {
+            u8 s = m_sticky[r][c];
+            if (!s) continue;
+            int g = ((int)s * 60) / 255 + 3;
+            if (g > 63) g = 63;
+            u16 col = (u16)g << 5;
+            matrix_draw_char(r, c, m_sticky_chr[r][c], col);
+        }
+    }
+
+    /* Matrix text phases — white, mid-bottom strip */
+    const char *msg = NULL;
+    if      (t >= 10 && t <  40) msg = "Wake up, Neo...";
+    else if (t >= 60 && t <  92) msg = "The Matrix has you...";
+    else if (t >= 112 && t < 150) msg = "Follow the white rabbit.";
+
+    if (msg) {
+        int len = 0;
+        const char *s = msg;
+        while (*s++) len++;
+        int tx = (LCD_W - len * 6) / 2;
+        int ty = LCD_H - 22;
+        int y2, x2;
+        for (y2 = ty - 2; y2 < ty + 10 && y2 < LCD_H; y2++)
+            for (x2 = 0; x2 < LCD_W; x2++)
+                fb[y2 * LCD_W + x2] = 0x0000;
+        fb_puts(fb, tx, ty, msg, 0xFFFF, 0x0000);
+        if ((t & 3) < 2) {
+            int cx = tx + len * 6;
+            if (cx + 2 < LCD_W) {
+                int ri;
+                for (ri = 0; ri < 7; ri++)
+                    fb[(ty + ri) * LCD_W + cx] = 0xFFFF;
+            }
+        }
+    }
+
+    /* Live kmsg tail at very bottom — green console feel */
+    if ((t % 10) == 0 || matrix_dmesg_line[0] == 0)
+        matrix_update_dmesg();
+    {
+        int ty = LCD_H - 9;
+        int y2, x2;
+        for (y2 = ty - 1; y2 < ty + 8 && y2 < LCD_H; y2++)
+            for (x2 = 0; x2 < LCD_W; x2++)
+                fb[y2 * LCD_W + x2] = 0x0000;
+        if (matrix_dmesg_line[0]) {
+            const char *line = matrix_dmesg_line;
+            int total = 0;
+            while (line[total]) total++;
+            if (total > MATRIX_COLS) line += total - MATRIX_COLS;
+            int llen = 0;
+            while (line[llen]) llen++;
+            int tx = (LCD_W - llen * 6) / 2;
+            if (tx < 0) tx = 0;
+            fb_puts(fb, tx, ty, line, 0x07E0, 0x0000);
+        }
+    }
+}
+
 /* Scene dispatch */
-#define NUM_SCENES 6
-static int current_scene = -1;  /* -1 = random at boot */
+#define NUM_SCENES 7
+static int current_scene = 6;   /* 6 = Matrix boot splash */
 
 static void render_scene(int scene, int t)
 {
@@ -609,18 +845,19 @@ static void render_scene(int scene, int t)
     case 3: scene_interference(t); break;
     case 4: scene_rotozoom(t); break;
     case 5: scene_dashboard(t); break;
+    case 6: scene_matrix(t); break;
     default: scene_plasma(t); break;
     }
     if (scene == 5)
         overlay_logo_alpha();
-    else
+    else if (scene != 6)        /* matrix — no 4PDA logo, it ruins the vibe */
         overlay_logo();
 }
 
 /* === Boot console: dmesg on LCD === */
 
 /* Minimal 5x7 font (ASCII 32-126, same as lcd_render) */
-static const u8 kfont[][5] = {
+static const u8 kfont[96][5] = {
     {0x00,0x00,0x00,0x00,0x00},{0x00,0x00,0x5F,0x00,0x00}, /* sp ! */
     {0x00,0x07,0x00,0x07,0x00},{0x14,0x7F,0x14,0x7F,0x14}, /* " # */
     {0x24,0x2A,0x7F,0x2A,0x12},{0x23,0x13,0x08,0x64,0x62}, /* $ % */
@@ -692,49 +929,7 @@ static void fb_puts(u16 *fb, int x, int y, const char *s, u16 fg, u16 bg)
     }
 }
 
-#define CONSOLE_LINES (LCD_H / 8)     /* 30 lines */
-#define CONSOLE_COLS  (LCD_W / 6)     /* 53 chars */
-static int console_phase = 0;         /* 0=splash, 1=dmesg, 2=userspace */
-
-static void render_dmesg(void)
-{
-    u16 *fb = (u16 *)framebuffer;
-    char buf[256];
-    int y = 0;
-    u16 green = 0x07E0, black = 0x0000;
-
-    memset(fb, 0, FB_SIZE);
-    fb_puts(fb, 0, 0, "Almond 3S boot console", 0xFFE0, black);
-    y = 10;
-
-    /* Read last CONSOLE_LINES from kmsg ring buffer */
-    {
-        struct kmsg_dump_iter iter;
-        size_t len;
-
-        kmsg_dump_rewind(&iter);
-        while (kmsg_dump_get_line(&iter, true, buf, sizeof(buf) - 1, &len)) {
-            if (len > 0) {
-                buf[len] = 0;
-                /* Trim timestamp prefix [ 1234.567890] */
-                char *msg = buf;
-                if (msg[0] == '[') {
-                    char *p = strchr(msg, ']');
-                    if (p) msg = p + 2;
-                }
-                /* Only show last lines that fit on screen */
-                if (y + 8 > LCD_H) {
-                    /* Scroll up */
-                    memmove(fb, fb + LCD_W * 8, (LCD_H - 8) * LCD_W * 2);
-                    memset(fb + LCD_W * (LCD_H - 8), 0, 8 * LCD_W * 2);
-                    y = LCD_H - 8;
-                }
-                fb_puts(fb, 0, y, msg, green, black);
-                y += 8;
-            }
-        }
-    }
-}
+static int console_phase = 0;         /* 0=splash, 2=userspace */
 
 /* Render thread */
 static int render_fn(void *data)
@@ -751,19 +946,12 @@ static int render_fn(void *data)
 
     while (!kthread_should_stop()) {
         if (splash_active) {
-            if (console_phase == 0) {
-                /* Phase 0: demoscene for 3 seconds */
-                render_scene(current_scene, frame++);
-                lcd_flush_fb();
-                msleep(100);
-                if (time_after(jiffies, splash_start + 3 * HZ))
-                    console_phase = 1; /* switch to dmesg */
-            } else {
-                /* Phase 1: dmesg console */
-                render_dmesg();
-                lcd_flush_fb();
-                msleep(500); /* refresh dmesg every 500ms */
-            }
+            /* Splash runs until userspace writes to /dev/lcd. Live kmsg tail
+             * is overlaid inside the matrix scene itself, so no separate
+             * full-screen dmesg phase. */
+            render_scene(current_scene, frame++);
+            lcd_flush_fb();
+            msleep(100);
             if (kthread_should_stop()) break;
         } else if (fb_dirty && !fb_writing) {
             console_phase = 2; /* userspace took over */
@@ -1506,8 +1694,9 @@ static int __init lcd_drv_init(void)
     lcd_init_ili9341();
     shadow_dir |= BIT_BL; gw_dir(shadow_dir);
 
-    /* First scene frame + logo — render thread continues animation */
-    current_scene = jiffies % NUM_SCENES;
+    /* First scene frame + logo — render thread continues animation.
+     * Scene 6 = Matrix ("Wake up, Neo...") as the boot splash. */
+    current_scene = 6;
     render_scene(current_scene, 0);
     lcd_flush_fb();
 

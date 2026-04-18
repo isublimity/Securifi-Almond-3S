@@ -24,10 +24,12 @@ else
     exit 1
 fi
 
-# fildunsky_openwrt: kernel 6.12.74, GCC 14.3
-FILD_DIR="${FILD_DIR:-/mnt/sata/var/openwrt/fildunsky_openwrt}"
-KDIR="$FILD_DIR/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/linux-6.12.74"
-CROSS="$FILD_DIR/staging_dir/toolchain-mipsel_24kc_gcc-14.3.0_musl/bin/mipsel-openwrt-linux-musl-"
+# OpenWrt 24.10.6 upstream: kernel 6.6.127, GCC 13.3
+FILD_DIR="${FILD_DIR:-/mnt/sata/var/openwrt/openwrt-24.10.6}"
+KVER="${KVER:-6.6.127}"
+GCCVER="${GCCVER:-13.3.0}"
+KDIR="$FILD_DIR/build_dir/target-mipsel_24kc_musl/linux-ramips_mt7621/linux-$KVER"
+CROSS="$FILD_DIR/staging_dir/toolchain-mipsel_24kc_gcc-${GCCVER}_musl/bin/mipsel-openwrt-linux-musl-"
 
 mkdir -p "$OUT_DIR"
 
