@@ -217,6 +217,12 @@ setup_lte() {
     uci set network.wwan.apn='internet'
     uci set network.wwan.pdptype='ipv4'
     uci set network.wwan.metric='100'
+    # Публичные DNS вместо peerdns от оператора (beeline internal DNS
+    # недоступен через WG-туннель — сломает резолвинг после поднятия VPN)
+    uci set network.wwan.peerdns='0'
+    uci -q delete network.wwan.dns
+    uci add_list network.wwan.dns='1.1.1.1'
+    uci add_list network.wwan.dns='8.8.8.8'
     uci commit network
 
     # Firewall: wan zone
